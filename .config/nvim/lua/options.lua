@@ -1,55 +1,51 @@
 require "nvchad.options"
 
--- add yours here!
+local o = vim.opt
 
--- local o = vim.o
--- o.cursorlineopt ='both' -- to enable cursorline!
---
-local options = {
-  backup = false,
-  clipboard = "unnamedplus",
-  cmdheight = 2,
-  completeopt = { "menuone", "noselect" } ,
-  conceallevel = 0,
-  fileencoding = "utf-8",
-  hlsearch = true,
-  incsearch = true,
-  ignorecase = true,
-  ro = false,
-  mouse = "a",
-  pumheight = 10,
+-------------------------------------- options ------------------------------------------
+o.backup = false
+o.swapfile = false
+o.undofile = true
+o.writebackup = false
 
-  smartcase = true,
-  smartindent = true,
-  splitbelow = true,
-  splitright = true,
+o.clipboard = "unnamedplus"
+o.mouse = "a"
 
-  swapfile = false,
-  termguicolors = true,
-  timeoutlen = 1000,
-  undofile = true,
-  updatetime = 300,
-  writebackup = false,
+o.cmdheight = 2
+o.completeopt = { "menuone", "noselect" }
+o.conceallevel = 0
+o.fileencoding = "utf-8"
 
-  expandtab = true,
+o.hlsearch = true
+o.incsearch = true
+o.ignorecase = true
 
-  shiftwidth = 4,
-  tabstop = 4,
-  softtabstop = 4,
-        
-  cursorline = false,
-  number = true,
-  relativenumber = true,
-  numberwidth = 4,
-  wrap = false,
+o.ro = false
 
-  scrolloff = 8,
-  sidescrolloff = 8,
-}
+o.pumheight = 10
 
-for k, v in pairs(options) do
-    vim.opt[k] = v
-end
+o.expandtab = true
+o.smartcase = true
+o.smartindent = true
+o.splitbelow = true
+o.splitright = true
+
+o.termguicolors = true
+o.timeoutlen = 1000
+o.updatetime = 300
+
+o.shiftwidth = 4
+o.tabstop = 4
+o.softtabstop = 4
+
+o.cursorline = false
+o.number = true
+o.relativenumber = true
+o.numberwidth = 4
+o.wrap = false
+
+o.scrolloff = 8
+o.sidescrolloff = 8
 
 -- Create an autocommand group for file-specific settings
 vim.api.nvim_create_augroup("FileTypeSpecific", { clear = true })
