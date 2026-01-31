@@ -1,0 +1,70 @@
+require "nvchad.options"
+
+-- add yours here!
+
+-- local o = vim.o
+-- o.cursorlineopt ='both' -- to enable cursorline!
+--
+local options = {
+  backup = false,
+  clipboard = "unnamedplus",
+  cmdheight = 2,
+  completeopt = { "menuone", "noselect" } ,
+  conceallevel = 0,
+  fileencoding = "utf-8",
+  hlsearch = true,
+  incsearch = true,
+  ignorecase = true,
+  ro = false,
+  mouse = "a",
+  pumheight = 10,
+
+  smartcase = true,
+  smartindent = true,
+  splitbelow = true,
+  splitright = true,
+
+  swapfile = false,
+  termguicolors = true,
+  timeoutlen = 1000,
+  undofile = true,
+  updatetime = 300,
+  writebackup = false,
+
+  expandtab = true,
+
+  shiftwidth = 4,
+  tabstop = 4,
+  softtabstop = 4,
+        
+  cursorline = false,
+  number = true,
+  relativenumber = true,
+  numberwidth = 4,
+  wrap = false,
+
+  scrolloff = 8,
+  sidescrolloff = 8,
+}
+
+for k, v in pairs(options) do
+    vim.opt[k] = v
+end
+
+-- Create an autocommand group for file-specific settings
+vim.api.nvim_create_augroup("FileTypeSpecific", { clear = true })
+
+-- Set shiftwidth and tabstop to 2 for HTML, CSS, JavaScript, and Lua files
+vim.api.nvim_create_autocmd("FileType", {
+    pattern = { "html", "css", "javascript", "lua" },
+    callback = function()
+        vim.opt_local.shiftwidth = 2
+        vim.opt_local.tabstop = 2
+    end,
+    group = "FileTypeSpecific",
+})
+
+vim.cmd("autocmd BufEnter * set formatoptions-=cro")
+vim.cmd("autocmd BufEnter * setlocal formatoptions-=cro")
+
+vim.opt.shortmess:append "c"

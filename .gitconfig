@@ -1,0 +1,40 @@
+[user]
+	name = Aymeric Hiegel
+	email = aymeric.hiegel@epita.fr
+[init]
+	defaultBranch = master
+[diff]
+	algorithm = histogram
+	colorMoved = zebra
+	wsErrorHighlight = all
+[push]
+	default = simple
+[core]
+	autocrlf = input
+	pager = delta
+[help]
+	autocorrect = 20
+[rerere]
+	enabled = true
+[merge]
+	conflictStyle = zdiff3
+[status]
+	branch = true
+	showUntrackedFiles = all
+[pull]
+	rebase = true
+[rebase]
+	autoStash = true
+	updateRefs = true
+[fetch]
+	prune = true
+[alias]
+	last = log -1 HEAD
+	lg = log --oneline --graph --decorate --all
+	unstage = reset HEAD --
+	fixup = commit --fixup
+	undo = reset --soft HEAD~1
+[delta]
+	side-by-side = true
+[format]
+	pretty = %C(yellow)%h%Creset %C(cyan)%an%Creset %s %Cgreen(%cr)%Creset
