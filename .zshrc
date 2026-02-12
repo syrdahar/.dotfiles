@@ -3,6 +3,16 @@
 
 export ZSH="$HOME/.oh-my-zsh"
 export SSH_AUTH_SOCK="$XDG_RUNTIME_DIR/ssh-agent.socket"
+export EDITOR=nvim
+
+# yazi change working directory
+function y() {
+	local tmp="$(mktemp -t "yazi-cwd.XXXXXX")" cwd
+	command yazi "$@" --cwd-file="$tmp"
+	IFS= read -r -d '' cwd < "$tmp"
+	[ "$cwd" != "$PWD" ] && [ -d "$cwd" ] && builtin cd -- "$cwd"
+	rm -f -- "$tmp"
+}
 
 ZSH_THEME="robbyrussell"
 
@@ -35,7 +45,7 @@ alias vpn="nordvpn"
 alias gs="git status"
 alias gc="git commit -m"
 alias gt="git tag -ma"
-alias gp="git push -u"
+alias gp="git push -u --follow-tags"
 
 # ─── Core fzf integration ────────────────────────────────────────
 [ -f /usr/share/fzf/key-bindings.zsh ] && source /usr/share/fzf/key-bindings.zsh

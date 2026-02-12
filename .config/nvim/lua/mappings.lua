@@ -9,6 +9,8 @@ map("n", ";", ":", { desc = "CMD enter command mode" })
 
 -- Plugin specific
 map('n', '<leader>ca', '<cmd>lua vim.lsp.buf.code_action()<cr>', opts)
+map("n", "<leader>tp", "<cmd>TypstPreviewToggle<CR>", { desc = "Typst Toggle Preview" })
+
 
 -- map({ "n", "i", "v" }, "<C-s>", "<cmd> w <cr>")
 
