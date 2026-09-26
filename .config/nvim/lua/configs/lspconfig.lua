@@ -1,6 +1,6 @@
 require("nvchad.configs.lspconfig").defaults()
 
-local servers = { "html", "cssls", "clangd", "tinymist" }
+local servers = { "html", "cssls", "clangd", "tinymist", "basedpyright" }
 vim.lsp.enable(servers)
 
 local typst_config = {
@@ -13,4 +13,21 @@ local typst_config = {
     }
 
 vim.lsp.config("tinymist", { settings = typst_config } )
+vim.lsp.config("basedpyright", { settings = typst_config } )
 -- read :h vim.lsp.config for changing options of lsp servers 
+---- Configuration spécifique pour Basedpyright
+local pyright_config = {
+  on_attach = on_attach,
+  capabilities = capabilities,
+  settings = {
+    basedpyright = {
+      analysis = {
+        autoSearchPaths = true,
+        useLibraryCodeForTypes = true,
+        diagnosticMode = "openFilesOnly",
+        -- "all" offre une analyse de type ultra-stricte (niveau prépa)
+        typeCheckingMode = "standard", 
+      },
+    },
+  },
+}

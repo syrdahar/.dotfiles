@@ -3,15 +3,16 @@
 
 [general]
 import = [
-    "~/.config/alacritty/themes/themes/rose_pine.toml"
+    "~/.config/alacritty/neon-graffiti.toml",
+    "~/.config/alacritty/look.toml"
 ]
 
 [window]
 
-opacity = 0.9
+blur = true
 
-padding.x = 10
-padding.y = 10
+padding.x = 14
+padding.y = 12
 
 decorations = "Full"
 decorations_theme_variant = "Dark" # "Light"
@@ -23,4 +24,9 @@ bold.family = "JetBrainsMono Nerd Font"
 italic.family = "JetBrainsMono Nerd Font"
 bold_italic.family = "JetBrainsMono Nerd Font"
 
-size = 9.0
+size = 8.0
+
+[[keyboard.bindings]]
+key = "Return"
+mods = "Shift"
+chars = "\u001B\r"

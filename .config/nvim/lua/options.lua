@@ -64,3 +64,8 @@ vim.cmd("autocmd BufEnter * set formatoptions-=cro")
 vim.cmd("autocmd BufEnter * setlocal formatoptions-=cro")
 
 vim.opt.shortmess:append "c"
+
+-- Tout ça pour le plugin Molten
+vim.g.loaded_remote_plugins = nil
+vim.g.loaded_python3_provider = nil 
+vim.g.python3_host_prog = vim.fn.expand("~/.virtualenvs/neovim/bin/python")

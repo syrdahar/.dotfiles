@@ -1,0 +1,26 @@
+# $HOME/.config/alacritty/alacritty.toml
+# by Rito Ghosh 2023-10-06
+
+[general]
+import = [
+    "~/.config/alacritty/themes/themes/rose_pine.toml"
+]
+
+[window]
+
+opacity = 0.9
+
+padding.x = 10
+padding.y = 10
+
+decorations = "Full"
+decorations_theme_variant = "Dark" # "Light"
+
+[font]
+
+normal.family = "JetBrainsMono Nerd Font"
+bold.family = "JetBrainsMono Nerd Font"
+italic.family = "JetBrainsMono Nerd Font"
+bold_italic.family = "JetBrainsMono Nerd Font"
+
+size = 9.0
