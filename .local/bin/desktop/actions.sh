@@ -49,9 +49,10 @@ action "Ports · Ports en écoute et processus ‖ Ports · Listening ports and 
 action "SSH · Se connecter à un hôte ‖ SSH · Connect to a host"                        cmd  "desk ssh"
 action "Web · Recherche (gh mdn npm aur so…) ‖ Web · Search (gh mdn npm aur so…)"      cmd  "desk web"
 action "Mobile · scrcpy / émulateur / adb ‖ Mobile · scrcpy / emulator / adb"          cmd  "desk mobile"
+action "IA · Claude sur le presse-papier (expliquer, corriger, tests…) ‖ AI · Claude on clipboard (explain, fix, tests…)" cmd "desk ai"
 action "Capture · Menu captures (OCR, annotation, vidéo…) ‖ Screenshot · Capture menu (OCR, annotate, video…)" cmd "desk capture"
 # sous-actions de chaque module, lues dans les scripts (desk-<module> --list)
-for mod in project git docker ports mobile capture; do
+for mod in project git docker ports mobile capture ai; do
     while IFS=$'\t' read -r id label; do
         case "$mod:$id" in
             project:pick|docker:containers|ports:ports) continue ;;                 # = menus ci-dessus

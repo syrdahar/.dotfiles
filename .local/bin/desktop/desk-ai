@@ -1,0 +1,164 @@
+#!/usr/bin/env bash
+# ──────────────────────────────────────────────────────────────
+#  desk ai — Claude (abonnement, via « claude -p ») sur le presse-papier
+#   desk ai               menu des tâches (entrée = presse-papier)
+#   desk ai <tâche>       explain | fix | tests | commit | translate | review | ask
+#   desk ai --list        actions pour la palette
+#
+#  - secrets masqués (lib.sh : mask_secrets) AVANT tout envoi ;
+#  - commit : message généré depuis « git diff --staged » du dépôt du terminal actif ;
+#  - réponse affichée en direct dans un terminal flottant, puis rendue avec glow,
+#    et copiée dans le presse-papier (fix / tests : seulement le bloc de code) ;
+#  - claude tourne sans outils, sans MCP ni réglages utilisateur (hooks, plugins),
+#    dans un dossier vide : il ne voit que ce qu'on lui envoie.
+#  Modèle : DESK_AI_MODEL dans ~/.config/desktop/desk.conf (défaut : sonnet).
+# ──────────────────────────────────────────────────────────────
+source "$(dirname "$(readlink -f "$0")")/lib.sh"
+DESK_NAME=ai
+MODEL=${DESK_AI_MODEL:-sonnet}
+IN=$DESK_RUN/ai-input.txt
+PROMPT=$DESK_RUN/ai-prompt.txt
+OUT=$DESK_RUN/ai-output.md
+META=$DESK_RUN/ai-meta          # tâche, dépôt, nb de secrets masqués
+
+ACTIONS=(
+    "explain|IA · Expliquer l'erreur / le code ‖ AI · Explain error / code"
+    "fix|IA · Corriger le code (code copié) ‖ AI · Fix the code (code copied)"
+    "tests|IA · Générer des tests (code copié) ‖ AI · Generate tests (code copied)"
+    "commit|IA · Message de commit (git diff --staged) ‖ AI · Commit message (git diff --staged)"
+    "translate|IA · Traduire FR ↔ EN ‖ AI · Translate FR ↔ EN"
+    "review|IA · Relire le code (bugs, cas limites) ‖ AI · Review code (bugs, edge cases)"
+    "ask|IA · Question libre sur le presse-papier ‖ AI · Ask anything about the clipboard"
+)
+
+reply_lang() { t "Réponds en français." "Answer in English."; }
+
+test_framework() {   # indice de framework de test d'après le dépôt du terminal actif
+    local root; root=$(git -C "$(active_cwd)" rev-parse --show-toplevel 2>/dev/null) || return 0
+    if [[ -f $root/package.json ]]; then
+        jq -r '[(.dependencies // {}), (.devDependencies // {})] | add | keys[]' "$root/package.json" 2>/dev/null |
+            command grep -xE 'jest|vitest|mocha|jest-expo|@testing-library/[a-z-]+|@playwright/test|cypress' | paste -sd, - || true
+    elif [[ -f $root/pyproject.toml || -f $root/requirements.txt ]]; then echo "pytest (Python)"
+    elif [[ -f $root/go.mod ]]; then echo "go test"
+    elif [[ -f $root/Cargo.toml ]]; then echo "cargo test (Rust)"
+    fi
+}
+
+instructions() {   # instructions <tâche> [question]
+    case $1 in
+        explain)   echo "Explain this error or code concisely: most likely cause first, then a concrete fix (with a short code snippet if useful). Markdown, no preamble. $(reply_lang)" ;;
+        fix)       echo "Fix this code. Answer with the complete corrected code in ONE fenced code block, then a very short bullet list of what changed. $(reply_lang)" ;;
+        tests)     local fw; fw=$(test_framework)
+                   echo "Write focused unit tests for this code${fw:+ using: $fw}. Cover normal cases and edge cases. Answer with ONE fenced code block containing the test file, then one or two lines of explanation. $(reply_lang)" ;;
+        commit)    echo "Write a git commit message for the staged diff below. Follow the style of the recent commits shown (they are listed first). Conventional Commits: 'type(scope): summary' (≤ 72 chars, imperative, English), blank line, then a short bullet body only if it adds information. Output ONLY the commit message, no code fences, no commentary." ;;
+        translate) echo "Translate the following text: if it is French, translate it to English; otherwise translate it to French. Keep formatting (markdown, code, line breaks) and technical terms. Output ONLY the translation." ;;
+        review)    echo "Review this code: bugs, edge cases, security, readability. Prioritized, concise bullet list (most important first), each with a concrete suggestion. $(reply_lang)" ;;
+        ask)       printf '%s\n\n%s %s' "$2" "The context (clipboard content) follows. Answer concisely in markdown." "$(reply_lang)" ;;
+    esac
+}
+
+task_label() { local e; for e in "${ACTIONS[@]}"; do [[ ${e%%|*} == "$1" ]] && { bi "${e#*|}"; return; }; done; }
+
+# ── Lancement (hors terminal) : prépare l'entrée puis ouvre le terminal flottant ──
+start() {
+    local task=$1 raw question="" repo=""
+    case $task in explain|fix|tests|commit|translate|review|ask) ;; *) die "$(t "Tâche inconnue" "Unknown task") : $task" ;; esac
+    command -v claude >/dev/null || die "$(t "claude (Claude Code) n'est pas installé" "claude (Claude Code) is not installed")"
+
+    if [[ $task == commit ]]; then
+        repo=$(git -C "$(active_cwd)" rev-parse --show-toplevel 2>/dev/null) || die "$(t "Le terminal actif n'est pas dans un dépôt git" "The active terminal is not inside a git repository")"
+        git -C "$repo" diff --staged --quiet && die "$(t "Rien d'indexé : fais d'abord git add" "Nothing staged: run git add first") ($(tilde "$repo"))"
+        raw=$(printf '# Recent commits\n%s\n\n# Staged diff (stat)\n%s\n\n# Staged diff\n%s\n' \
+            "$(git -C "$repo" log --oneline -10 2>/dev/null || true)" \
+            "$(git -C "$repo" diff --staged --stat)" \
+            "$(git -C "$repo" diff --staged | head -c 150000)")
+    else
+        raw=$(clip_get)
+        [[ -n ${raw// } ]] || die "$(t "Le presse-papier est vide" "The clipboard is empty")"
+    fi
+    if [[ $task == ask ]]; then
+        question=$(menu "󰚩  claude" -l 0 -mesg "$(t "Ta question (le presse-papier est joint en contexte)" "Your question (clipboard attached as context)")" </dev/null) || exit 0
+        [[ -n ${question// } ]] || exit 0
+    fi
+
+    local n; n=$(printf '%s' "$raw" | command grep -oP -- "$DESK_SECRET_RE" | wc -l || true)
+    printf '%s' "$raw" | head -c 200000 | mask_secrets >"$IN"
+    instructions "$task" "$question" >"$PROMPT"
+    printf 'task=%q\nrepo=%q\nmasked=%q\n' "$task" "$repo" "$n" >"$META"
+
+    setsid -f "$DESK_TERMINAL" --class desk-float -T "Claude · $(task_label "$task")" \
+        --working-directory "${repo:-$HOME}" -e "$DESK_DIR/desk-ai" _run >/dev/null 2>&1
+}
+
+# ── Dans le terminal flottant ────────────────────────────────
+first_code_block() {   # extrait le premier bloc ``` … ``` (sinon tout)
+    python3 -c 'import re,sys
+s=sys.stdin.read()
+m=re.search(r"```[^\n]*\n(.*?)\n```", s, re.S)
+print(m.group(1) if m else s.strip(), end="")'
+}
+
+run_in_terminal() {
+    trap - ERR
+    local task repo masked
+    # shellcheck source=/dev/null
+    source "$META"
+    local dim=$'\e[2m' bold=$'\e[1m' red=$'\e[31m' rst=$'\e[0m'
+    printf '%s󰚩  %s%s  %s· %s%s\n' "$bold" "$(task_label "$task")" "$rst" "$dim" "$MODEL" "$rst"
+    (( masked > 0 )) && printf '%s%s%s\n' "$dim" "$(t "$masked secret(s) masqué(s) avant l'envoi" "$masked secret(s) redacted before sending")" "$rst"
+    printf '%s%s%s\n\n' "$dim" "$(t "Réponse en cours…" "Thinking…")" "$rst"
+
+    local wd; wd=$(mktemp -d)
+    ( cd "$wd" && claude -p --model "$MODEL" --tools "" --strict-mcp-config --no-session-persistence \
+          --setting-sources local --output-format stream-json --verbose --include-partial-messages \
+          "$(cat "$PROMPT")" <"$IN" 2>"$DESK_RUN/ai-err.log" ) |
+        tee "$DESK_RUN/ai-stream.jsonl" |
+        jq --unbuffered -rj 'select(.type == "stream_event" and .event.type == "content_block_delta" and .event.delta.type == "text_delta") | .event.delta.text' || true
+    rmdir "$wd" 2>/dev/null || true
+
+    jq -rj 'select(.type == "stream_event" and .event.type == "content_block_delta" and .event.delta.type == "text_delta") | .event.delta.text' \
+        "$DESK_RUN/ai-stream.jsonl" >"$OUT" 2>/dev/null || true
+    local err; err=$(jq -r 'select(.type == "result" and .is_error == true) | .result // .subtype' "$DESK_RUN/ai-stream.jsonl" 2>/dev/null || true)
+    if [[ ! -s $OUT || -n $err ]]; then
+        printf '\n\n%s%s%s\n%s\n' "$red" "$(t "Échec de claude :" "claude failed:")" "$rst" "${err:-$(tail -n5 "$DESK_RUN/ai-err.log")}"
+        notify -u critical -i dialog-error-symbolic "Claude" "$(t "Échec" "Failed") : ${err:-$(tail -n1 "$DESK_RUN/ai-err.log")}"
+        read -rsn1 -p "$(t "Une touche pour fermer" "Press any key to close")"; return
+    fi
+
+    # copie : le code seul pour fix / tests, le message seul pour commit, sinon tout
+    case $task in
+        fix|tests) first_code_block <"$OUT" | clip_set ;;
+        *)         clip_set <"$OUT" ;;
+    esac
+    notify -u low -i edit-copy-symbolic "Claude · $(task_label "$task")" "$(t "Réponse copiée dans le presse-papier" "Answer copied to clipboard")"
+
+    # rendu final (glow si disponible), paginé
+    local hint; hint=$(t "copié · q pour quitter" "copied · q to quit")
+    clear
+    if command -v glow >/dev/null; then
+        glow -s dark -w "$(( $(tput cols) - 2 ))" "$OUT" | less -R -P "  Claude · $hint "
+    else
+        less -R -P "  Claude · $hint " "$OUT"
+    fi
+
+    if [[ $task == commit ]]; then
+        printf '%s\n%s\n\n' "$(cat "$OUT")" "────────"
+        printf '%s' "$(t "[c] commit avec ce message · [e] éditer puis commit · autre touche : quitter " "[c] commit with this message · [e] edit then commit · any other key: quit ")"
+        local k; read -rsn1 k; echo
+        case $k in
+            c) git -C "$repo" commit -F "$OUT" && notify -u low -i emblem-ok-symbolic "git commit" "$(git -C "$repo" log -1 --format=%s)"; read -rsn1 -p "$(t "Une touche pour fermer" "Press any key to close")" ;;
+            e) git -C "$repo" commit -e -F "$OUT" && notify -u low -i emblem-ok-symbolic "git commit" "$(git -C "$repo" log -1 --format=%s)" ;;
+        esac
+    fi
+}
+
+for _t in explain fix tests commit translate review ask; do eval "a_$_t() { start $_t; }"; done
+
+case "${1:-}" in
+    "")     menu_actions "󰚩  claude" "$(t "Entrée : presse-papier (commit : diff indexé) · secrets masqués · modèle" "Input: clipboard (commit: staged diff) · secrets redacted · model") $MODEL" ;;
+    _run)   run_in_terminal ;;
+    run)    start "${2:?usage: desk ai run <task>}" ;;
+    --list) list_actions ;;
+    -h|--help) sed -n '3,15p' "$0" | sed 's/^#  \{0,1\}//' ;;
+    *)      start "$1" ;;
+esac

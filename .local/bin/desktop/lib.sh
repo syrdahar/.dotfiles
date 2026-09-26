@@ -10,7 +10,7 @@
 #  notify [options] titre [corps]  notification (app "desk")
 #  die "message"                   notification d'erreur + sortie
 #  clip_get / clip_set [texte]     presse-papier Wayland (clip_set lit stdin sans argument)
-#  active_cwd                      dossier courant du terminal actif (sinon $HOME)
+#  active_cwd                      dossier courant du terminal actif (sinon $HOME ; DESK_CWD le force)
 #  is_git_repo [dossier]
 #  $DESK_JQ                        fonctions jq pour afficher un bind (combo, fullcombo)
 # ──────────────────────────────────────────────────────────────
@@ -193,6 +193,8 @@ menu_actions() {   # menu_actions "prompt" "message"  → choisit dans ACTIONS p
 # fenêtre active → pid du terminal → shell enfant → processus au premier plan du tty
 # (tpgid) ; si c'est un client tmux, on demande le dossier du pane actif à tmux.
 active_cwd() {
+    # DESK_CWD=dossier : forcer le dossier (CLI, tests)
+    [[ -n ${DESK_CWD:-} ]] && { echo "$DESK_CWD"; return; }
     local pid shell fg leaf cwd="" tty
     pid=$(hyprctl activewindow -j 2>/dev/null | jq -r '.pid // 0')
     if (( pid > 0 )) && [[ -d /proc/$pid ]]; then
