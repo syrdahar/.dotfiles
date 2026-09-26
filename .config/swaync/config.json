@@ -1,0 +1,150 @@
+{
+  "$schema": "/etc/xdg/swaync/configSchema.json",
+  "ignore-gtk-theme": true,
+  "positionX": "right",
+  "positionY": "top",
+  "layer": "overlay",
+  "control-center-layer": "top",
+  "layer-shell": true,
+  "layer-shell-cover-screen": true,
+  "cssPriority": "user",
+  "control-center-margin-top": 6,
+  "control-center-margin-bottom": 7,
+  "control-center-margin-right": 7,
+  "control-center-margin-left": 0,
+  "notification-2fa-action": true,
+  "notification-inline-replies": false,
+  "notification-body-image-height": 100,
+  "notification-body-image-width": 200,
+  "timeout": 6,
+  "timeout-low": 3,
+  "timeout-critical": 0,
+  "fit-to-screen": true,
+  "relative-timestamps": true,
+  "control-center-width": 380,
+  "control-center-height": 640,
+  "notification-window-width": 340,
+  "keyboard-shortcuts": true,
+  "notification-grouping": true,
+  "image-visibility": "when-available",
+  "transition-time": 200,
+  "hide-on-clear": false,
+  "hide-on-action": true,
+  "text-empty": "Aucune notification",
+  "script-fail-notify": true,
+  "widgets": [
+    "title",
+    "dnd",
+    "buttons-grid",
+    "volume",
+    "backlight",
+    "mpris",
+    "notifications"
+  ],
+  "widget-config": {
+    "notifications": {
+      "vexpand": true
+    },
+    "title": {
+      "text": "Notifications",
+      "clear-all-button": true,
+      "button-text": "Tout effacer"
+    },
+    "dnd": {
+      "text": "Ne pas déranger"
+    },
+    "volume": {
+      "label": "󰕾",
+      "show-per-app": false
+    },
+    "backlight": {
+      "label": "󰃟",
+      "device": "amdgpu_bl1"
+    },
+    "mpris": {
+      "blacklist": [],
+      "autohide": true,
+      "show-album-art": "always",
+      "loop-carousel": false
+    },
+    "buttons-grid": {
+      "buttons-per-row": 5,
+      "actions": [
+        {
+          "label": "󰖩",
+          "type": "toggle",
+          "command": "/home/dorian/.config/hypr/scripts/cc-toggle.sh wifi set",
+          "update-command": "/home/dorian/.config/hypr/scripts/cc-toggle.sh wifi get"
+        },
+        {
+          "label": "󰂯",
+          "type": "toggle",
+          "command": "/home/dorian/.config/hypr/scripts/cc-toggle.sh bluetooth set",
+          "update-command": "/home/dorian/.config/hypr/scripts/cc-toggle.sh bluetooth get"
+        },
+        {
+          "label": "󰒃",
+          "type": "toggle",
+          "command": "/home/dorian/.config/hypr/scripts/cc-toggle.sh vpn set",
+          "update-command": "/home/dorian/.config/hypr/scripts/cc-toggle.sh vpn get"
+        },
+        {
+          "label": "󰖔",
+          "type": "toggle",
+          "command": "/home/dorian/.config/hypr/scripts/cc-toggle.sh night set",
+          "update-command": "/home/dorian/.config/hypr/scripts/cc-toggle.sh night get"
+        },
+        {
+          "label": "󰹑",
+          "command": "/home/dorian/.config/hypr/scripts/cc-action.sh screenshot"
+        },
+        {
+          "label": "󰈊",
+          "command": "/home/dorian/.config/hypr/scripts/cc-action.sh picker"
+        },
+        {
+          "label": "󰌾",
+          "command": "/home/dorian/.config/hypr/scripts/cc-action.sh lock"
+        },
+        {
+          "label": "󰐥",
+          "command": "/home/dorian/.config/hypr/scripts/cc-action.sh power"
+        },
+        {
+          "label": "󰏘",
+          "command": "/home/dorian/.config/hypr/scripts/cc-action.sh look"
+        },
+        {
+          "label": "󰕮",
+          "command": "/home/dorian/.config/hypr/scripts/cc-action.sh bar"
+        }
+      ]
+    }
+  },
+  "notification-visibility": {
+    "osd": {
+      "state": "transient",
+      "app-name": "osd"
+    },
+    "power": {
+      "state": "transient",
+      "app-name": "Lumière nocturne"
+    },
+    "rice": {
+      "state": "transient",
+      "app-name": "rice"
+    },
+    "dnd": {
+      "state": "transient",
+      "app-name": "dnd"
+    },
+    "wm": {
+      "state": "transient",
+      "app-name": "wm"
+    },
+    "notes": {
+      "state": "transient",
+      "app-name": "Notes"
+    }
+  }
+}

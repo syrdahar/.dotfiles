@@ -1,0 +1,10 @@
+/* Aide des raccourcis : liste large, police à chasse fixe pour l'alignement */
+@import "~/.config/rofi/neon.rasi"
+
+* { font: "JetBrainsMono Nerd Font Mono 9.5"; }
+
+window   { width: 860px; }
+listview { lines: 16; }
+message  { padding: 6px 12px; }
+textbox  { text-color: @subtext; }
+element-icon { enabled: false; }

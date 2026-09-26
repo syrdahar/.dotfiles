@@ -1,0 +1,3 @@
+@define-color osd_bg    alpha(#100c1f, 0.90);
+@define-color osd_edge  alpha(#29b4d7, 0.35);
+@define-color osd_track alpha(#2a2346, 1.0);

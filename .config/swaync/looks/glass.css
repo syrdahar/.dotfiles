@@ -1,0 +1,12 @@
+/* swaync · look "glass" : verre dépoli néomorphique */
+:root {
+  --card-bg:      rgba(42, 35, 70, 0.55);
+  --card-edge:    rgba(230, 221, 240, 0.14);
+  --card-hi:      rgba(255, 255, 255, 0.10);
+  --chip-bg:      rgba(11, 8, 24, 0.35);
+  --raise-bg:     rgba(230, 221, 240, 0.07);
+  --shade-dark:   rgba(5, 3, 12, 0.60);
+  --shade-light:  rgba(185, 166, 255, 0.10);
+  --panel-bg:     rgba(34, 27, 60, 0.50);
+  --panel-edge:   rgba(230, 221, 240, 0.16);
+}

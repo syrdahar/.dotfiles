@@ -1,0 +1,19 @@
+/* Neon Graffiti — power menu */
+@import "~/.config/rofi/neon.rasi"
+
+window {
+    width: 260px;
+    border-color: @magenta;
+}
+
+mainbox { children: [ inputbar, listview ]; }
+
+inputbar { children: [ prompt ]; }
+
+prompt { text-color: @gold; }
+
+listview { lines: 5; }
+
+element selected.normal {
+    border-color: @cyan;
+}
