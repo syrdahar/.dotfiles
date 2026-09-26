@@ -1,0 +1,290 @@
+#!/usr/bin/env bash
+# ──────────────────────────────────────────────────────────────
+#  desk clip — presse-papier contextuel
+#   desk clip               menu rofi : actions adaptées au contenu copié
+#                           (URL, JSON, JWT, stack trace, timestamp, date, texte)
+#                           + générateurs, calculatrice, historique
+#   desk clip run <id>      lance une action directement (palette, scripts)
+#   desk clip type          affiche le type détecté
+#   desk clip --list        "id<TAB>libellé" de toutes les actions (utilisé par la palette)
+#
+#  Le résultat d'une transformation remplace le presse-papier (+ notification).
+#  Ajouter une action : une ligne dans ACTIONS + une fonction a_<id> (tirets → _).
+# ──────────────────────────────────────────────────────────────
+source "$(dirname "$(readlink -f "$0")")/lib.sh"
+DESK_NAME=clip
+
+# id | types où elle est proposée | libellé
+#  types : url json jwt trace ts date text (= tout contenu non vide) · always (toujours)
+ACTIONS=(
+    "url-open|url|URL · Ouvrir dans le navigateur"
+    "url-curl|url|URL · curl (en-têtes + corps)"
+    "url-domain|url|URL · Copier le domaine"
+    "url-qr|url|URL · QR code"
+    "json-pretty|json|JSON · Formater (pretty)"
+    "json-minify|json|JSON · Minifier"
+    "json-validate|json|JSON · Valider"
+    "json-yaml|json|JSON · Convertir en YAML"
+    "json-view|json|JSON · Afficher"
+    "jwt-decode|jwt|JWT · Décoder (header + payload)"
+    "jwt-dates|jwt|JWT · Dates exp / iat / nbf"
+    "trace-search|trace|Erreur · Rechercher sur le web"
+    "trace-ai|trace|Erreur · Expliquer avec Claude"
+    "ts-date|ts|Timestamp · Convertir en date"
+    "date-epoch|date|Date · Convertir en timestamp epoch"
+    "case-camel|text|Texte · camelCase"
+    "case-pascal|text|Texte · PascalCase"
+    "case-snake|text|Texte · snake_case"
+    "case-kebab|text|Texte · kebab-case"
+    "case-upper|text|Texte · MAJUSCULES"
+    "case-lower|text|Texte · minuscules"
+    "trim|text|Texte · Trim (espaces en trop)"
+    "sort|text|Texte · Trier les lignes"
+    "dedupe|text|Texte · Dédupliquer les lignes"
+    "b64-enc|text|Texte · Encoder en base64"
+    "b64-dec|text|Texte · Décoder le base64"
+    "url-enc|text|Texte · URL encode"
+    "url-dec|text|Texte · URL decode"
+    "hash-sha256|text|Texte · Hash SHA-256"
+    "hash-sha1|text|Texte · Hash SHA-1"
+    "hash-md5|text|Texte · Hash MD5"
+    "count|text|Texte · Compter lignes / mots / caractères"
+    "gen-uuid|always|Générer · UUID v4"
+    "gen-iso|always|Générer · Horodatage ISO 8601"
+    "gen-epoch|always|Générer · Timestamp epoch"
+    "gen-password|always|Générer · Mot de passe (24 car. · sensible)"
+    "calc|always|Outils · Calculatrice (qalc)"
+    "history|always|Outils · Historique du presse-papier"
+    "hist-delete|always|Outils · Supprimer une entrée de l'historique"
+    "hist-wipe|always|Outils · Vider tout l'historique"
+)
+
+# ── Détection ────────────────────────────────────────────────
+detect() {   # detect < contenu → type
+    local s; s=$(cat)
+    local t=${s#"${s%%[![:space:]]*}"}; t=${t%"${t##*[![:space:]]}"}   # trim
+    [[ -z $t ]] && { echo empty; return; }
+    if [[ $t =~ ^eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*$ ]]; then echo jwt
+    elif [[ $t =~ ^https?://[^[:space:]]+$ ]]; then echo url
+    elif [[ $t == [\{\[]* ]] && jq -e . <<<"$t" >/dev/null 2>&1; then echo json
+    elif [[ $t =~ ^[0-9]{10}([0-9]{3})?$ ]]; then echo ts
+    elif [[ $t =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}([T\ ][0-9:.]+)?(Z|[+-][0-9:]+)?$ ]] && date -d "$t" &>/dev/null; then echo date
+    elif grep -qE '^\s+at .+[(:][0-9]+|Traceback \(most recent call last\)|^\s*File ".+", line [0-9]+|(Error|Exception)(:| \[)|^panic:|^\s+at [a-zA-Z_$][\w$.<>]*\(' <<<"$t"; then echo trace
+    else echo text
+    fi
+}
+
+declare -A TYPE_LABEL=([url]=URL [json]=JSON [jwt]=JWT [trace]="stack trace / erreur" [ts]=timestamp
+            [date]=date [text]=texte [empty]="presse-papier vide")
+
+available() {   # actions dont les dépendances existent
+    case $1 in
+        trace-ai) [[ -x $DESK_DIR/desk-ai ]] ;;
+        *) true ;;
+    esac
+}
+
+# ── Sorties ──────────────────────────────────────────────────
+result() {   # result "titre" "texte" → presse-papier + notification (aperçu masqué)
+    clip_set "$2"
+    local preview; preview=$(head -c 300 <<<"$2" | mask_secrets | head -n 6)
+    notify -u low -i edit-copy-symbolic "$1 · copié" "$preview"
+}
+
+input() { clip_get; }
+need() {   # need <type…> : vérifie que le presse-papier est d'un de ces types
+    local t; t=$(input | detect)
+    for x in "$@"; do [[ $t == "$x" ]] && return 0; done
+    die "Le presse-papier n'est pas de type : $* (détecté : ${TYPE_LABEL[$t]:-$t})"
+}
+py() { python3 -c "$1" "${@:2}"; }
+
+# ── Actions ──────────────────────────────────────────────────
+a_url_open()   { need url; xdg-open "$(input)" >/dev/null 2>&1 & notify -u low "Ouverture" "$(input)"; }
+a_url_curl()   {
+    need url; local f="$DESK_RUN/curl.txt"
+    curl -sS -L -i --max-time 20 "$(input)" >"$f" 2>&1 || true
+    show_text "curl · $(input)" "$f" http
+}
+a_url_domain() { need url; result "Domaine" "$(input | py 'import sys,urllib.parse as u; print(u.urlsplit(sys.stdin.read().strip()).hostname or "", end="")')"; }
+a_url_qr()     {
+    need url; local f="$DESK_RUN/qr.txt"
+    { echo; input | qrencode -t ansiutf8 -m 2; echo; input; echo; } >"$f"
+    show_text "QR code" "$f"
+}
+
+a_json_pretty()   { need json; result "JSON formaté" "$(input | jq .)"; }
+a_json_minify()   { need json; result "JSON minifié" "$(input | jq -c .)"; }
+a_json_validate() {
+    local err
+    if err=$(input | jq empty 2>&1); then notify -i emblem-ok-symbolic "JSON valide" "$(input | jq -r 'type + " · " + (length | tostring) + " éléments"')"
+    else notify -u critical -i dialog-error-symbolic "JSON invalide" "$err"; fi
+}
+a_json_yaml()     { need json; result "YAML" "$(input | yq -P -p json -o yaml)"; }
+a_json_view()     { need json; input | jq . >"$DESK_RUN/view.json"; show_text "JSON" "$DESK_RUN/view.json" json; }
+
+jwt_part() {   # jwt_part <n> : décode la partie n (0 header, 1 payload) en JSON
+    input | py 'import sys,base64,json
+p=sys.stdin.read().strip().split(".")[int(sys.argv[1])]
+p+="="*(-len(p)%4)
+print(json.dumps(json.loads(base64.urlsafe_b64decode(p)),indent=2,ensure_ascii=False))' "$1"
+}
+a_jwt_decode() {
+    need jwt; local h p f="$DESK_RUN/jwt.json"
+    h=$(jwt_part 0) || die "Header JWT illisible"; p=$(jwt_part 1) || die "Payload JWT illisible"
+    printf '// header\n%s\n// payload\n%s\n' "$h" "$p" >"$f"
+    clip_set "$p"
+    show_text "JWT décodé (payload copié)" "$f" json
+}
+a_jwt_dates() {
+    need jwt; local p now out="" k v rel
+    p=$(jwt_part 1) || die "Payload JWT illisible"; now=$(date +%s)
+    for k in iat nbf exp; do
+        v=$(jq -r --arg k "$k" '.[$k] // empty' <<<"$p")
+        [[ -n $v ]] || continue
+        (( v > now )) && rel="dans $(( (v - now) / 60 )) min" || rel="il y a $(( (now - v) / 60 )) min"
+        out+="$k : $(date -d "@$v" '+%d/%m/%Y %H:%M:%S') ($rel)"$'\n'
+    done
+    [[ -n $out ]] || die "Pas de champ iat / nbf / exp dans ce JWT"
+    local exp; exp=$(jq -r '.exp // empty' <<<"$p")
+    [[ -n $exp && $exp -lt $now ]] && notify -u critical -i dialog-warning-symbolic "JWT expiré" "$out" \
+                                    || notify -i dialog-information-symbolic "JWT" "$out"
+}
+
+a_trace_search() {
+    local q
+    q=$(input | grep -m1 -E '(Error|Exception|panic|Traceback|error)' || input | head -n1)
+    q=$(printf '%s' "$q" | mask_secrets | sed 's/^[[:space:]]*//' | head -c 200)
+    xdg-open "https://www.google.com/search?q=$(printf '%s' "$q" | py 'import sys,urllib.parse as u; print(u.quote_plus(sys.stdin.read()), end="")')" >/dev/null 2>&1 &
+    notify -u low -i system-search-symbolic "Recherche" "$q"
+}
+a_trace_ai() { exec "$DESK_DIR/desk" ai explain; }
+
+a_ts_date() {
+    need ts; local t; t=$(input | tr -d '[:space:]')
+    (( ${#t} == 13 )) && t=$(( t / 1000 ))
+    local iso; iso=$(date -u -d "@$t" '+%Y-%m-%dT%H:%M:%SZ')
+    clip_set "$iso"
+    notify -i x-office-calendar-symbolic "$(date -d "@$t" '+%A %d %B %Y · %H:%M:%S')" "UTC : $iso (copié)"
+}
+a_date_epoch() { need date; result "Timestamp epoch" "$(date -d "$(input)" +%s)"; }
+
+case_conv() {
+    input | py 'import re,sys
+mode=sys.argv[1]
+def conv(line):
+    if mode=="upper": return line.upper()
+    if mode=="lower": return line.lower()
+    s=re.sub(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])"," ",line)
+    w=[x.lower() for x in re.split(r"[\W_]+",s) if x]
+    if not w: return line
+    if mode=="snake": return "_".join(w)
+    if mode=="kebab": return "-".join(w)
+    if mode=="pascal": return "".join(x.capitalize() for x in w)
+    return w[0]+"".join(x.capitalize() for x in w[1:])
+print("\n".join(conv(l) for l in sys.stdin.read().split("\n")), end="")' "$1"
+}
+a_case_camel()  { result "camelCase"  "$(case_conv camel)"; }
+a_case_pascal() { result "PascalCase" "$(case_conv pascal)"; }
+a_case_snake()  { result "snake_case" "$(case_conv snake)"; }
+a_case_kebab()  { result "kebab-case" "$(case_conv kebab)"; }
+a_case_upper()  { result "MAJUSCULES" "$(case_conv upper)"; }
+a_case_lower()  { result "minuscules" "$(case_conv lower)"; }
+
+a_trim()   { result "Trim" "$(input | py 'import sys; print("\n".join(l.rstrip() for l in sys.stdin.read().strip().split("\n")), end="")')"; }
+a_sort()   { result "Lignes triées" "$(input | sort)"; }
+a_dedupe() { result "Lignes dédupliquées" "$(input | awk '!seen[$0]++')"; }
+a_b64_enc() { result "Base64" "$(input | base64 -w0)"; }
+a_b64_dec() {
+    local out
+    out=$(input | py 'import sys,base64
+s="".join(sys.stdin.read().split()); s+="="*(-len(s)%4)
+try: b=base64.b64decode(s,validate=True)
+except Exception: b=base64.urlsafe_b64decode(s)
+sys.stdout.write(b.decode("utf-8"))') || die "Ce n'est pas du base64 texte valide"
+    result "Base64 décodé" "$out"
+}
+a_url_enc() { result "URL encodé" "$(input | py 'import sys,urllib.parse as u; print(u.quote(sys.stdin.read(), safe=""), end="")')"; }
+a_url_dec() { result "URL décodé" "$(input | py 'import sys,urllib.parse as u; print(u.unquote_plus(sys.stdin.read()), end="")')"; }
+a_hash_sha256() { result "SHA-256" "$(input | sha256sum | cut -d' ' -f1)"; }
+a_hash_sha1()   { result "SHA-1"   "$(input | sha1sum   | cut -d' ' -f1)"; }
+a_hash_md5()    { result "MD5"     "$(input | md5sum    | cut -d' ' -f1)"; }
+a_count() {
+    local s; s=$(input)
+    notify -i accessories-text-editor-symbolic "Comptage" \
+        "$(printf '%s' "$s" | wc -l | awk '{print $1+1}') lignes · $(printf '%s' "$s" | wc -w) mots · $(printf '%s' "$s" | wc -m) caractères"
+}
+
+a_gen_uuid()  { result "UUID" "$(uuidgen -r)"; }
+a_gen_iso()   { result "Horodatage ISO" "$(date -Iseconds)"; }
+a_gen_epoch() { result "Timestamp epoch" "$(date +%s)"; }
+a_gen_password() {
+    # --sensitive : desk clipwatch ne le stocke pas et vide le presse-papier après 30 s
+    py 'import secrets,string
+a=string.ascii_letters+string.digits+"-_.!@#%^*+="
+while True:
+    p="".join(secrets.choice(a) for _ in range(24))
+    if any(c.isdigit() for c in p) and any(c in "-_.!@#%^*+=" for c in p): break
+print(p,end="")' | wl-copy --sensitive
+    notify -u low -i dialog-password-symbolic "Mot de passe généré · copié" "24 caractères · hors historique · effacé dans 30 s"
+}
+
+a_calc()    { exec "$DESK_DIR/desk" calc; }
+a_history() {
+    read -r d a < <(hyprctl binds -j | jq -r 'first(.[] | select(.description == "Apps · Historique du presse-papier")) | "\(.dispatcher) \(.arg)"')
+    hyprctl dispatch "$d" "$a" >/dev/null
+}
+a_hist_delete() {
+    local line
+    line=$(cliphist list | menu "󰆴  supprimer" -display-columns 2) || exit 0
+    [[ -n $line ]] || exit 0
+    cliphist delete <<<"$line"
+    notify -u low -i edit-delete-symbolic "Entrée supprimée de l'historique"
+}
+a_hist_wipe() {
+    local ok
+    ok=$(printf 'Non\nOui, tout effacer\n' | menu "Vider l'historique ($(cliphist list | wc -l) entrées) ?") || exit 0
+    [[ $ok == Oui* ]] || exit 0
+    cliphist wipe
+    notify -i edit-clear-all-symbolic "Historique du presse-papier vidé"
+}
+
+run() {
+    local id=$1 fn="a_${1//-/_}"
+    declare -F "$fn" >/dev/null || die "Action inconnue : $id"
+    available "$id" || die "Action indisponible pour l'instant : $id"
+    "$fn"
+}
+
+# ── Menu ─────────────────────────────────────────────────────
+menu_main() {
+    local type content preview entry id types label
+    content=$(input); type=$(detect <<<"$content")
+    local -a ids=() lines=()
+    for pass in specific text always; do
+        for entry in "${ACTIONS[@]}"; do
+            IFS='|' read -r id types label <<<"$entry"
+            available "$id" || continue
+            case $pass in
+                specific) [[ $types == "$type" && $type != text ]] || continue ;;
+                text)     [[ $types == text && $type != empty ]] || continue ;;
+                always)   [[ $types == always ]] || continue ;;
+            esac
+            ids+=("$id"); lines+=("$label")
+        done
+    done
+    preview=$(head -c 160 <<<"$content" | mask_secrets | tr '\n\t' '  ' | sed 's/&/\&amp;/g; s/</\&lt;/g')
+    local idx
+    idx=$(printf '%s\n' "${lines[@]}" | menu "󰅌  clip" -format i \
+            -mesg "<b>${TYPE_LABEL[$type]}</b>  ·  ${preview:-∅}") || exit 0
+    [[ -n $idx ]] || exit 0
+    run "${ids[$idx]}"
+}
+
+case "${1:-}" in
+    "")     menu_main ;;
+    run)    run "${2:?usage: desk clip run <id>}" ;;
+    type)   input | detect ;;
+    --list) for entry in "${ACTIONS[@]}"; do IFS='|' read -r id _ label <<<"$entry"; available "$id" && printf '%s\t%s\n' "$id" "$label"; done ;;
+    *)      sed -n '3,9p' "$0" | sed 's/^#  \{0,1\}//'; exit 1 ;;
+esac

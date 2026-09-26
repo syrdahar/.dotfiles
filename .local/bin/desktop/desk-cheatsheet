@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# ──────────────────────────────────────────────────────────────
+#  desk cheatsheet — tous les raccourcis Hyprland, groupés par catégorie
+#   desk cheatsheet           menu rofi (Entrée exécute le raccourci choisi)
+#   desk cheatsheet --print   même liste sur stdout
+#
+#  Source : `hyprctl binds -j` = la config réellement chargée (tous les
+#  fichiers sourcés) → jamais désynchronisée. Catégorie = texte avant « · »
+#  dans la description du bindd ; un bind sans description apparaît quand
+#  même, avec sa commande brute. Les binds d'un submap s'affichent
+#  « touche d'entrée → touche » (ex. SUPER+Espace → G).
+# ──────────────────────────────────────────────────────────────
+source "$(dirname "$(readlink -f "$0")")/lib.sh"
+DESK_NAME=cheatsheet
+
+binds=$(hyprctl binds -j)
+
+# tableau trié : [ {cat, keys, desc, dispatcher, arg} ]
+rows=$(jq -c --argjson all "$binds" "$DESK_JQ"'
+    [ .[]
+      # leader : les variantes "SUPER encore enfoncé", les modificateurs seuls
+      # et le catchall sont volontairement sans description → masqués
+      | select(.submap != "leader" or .has_description)
+      | (if .has_description then (.description | split(" · ")) else [] end) as $d
+      | { cat:  (if ($d | length) > 1 then $d[0] elif .has_description then "Divers" else "Sans description" end),
+          desc: (if ($d | length) > 1 then ($d[1:] | join(" · ")) elif .has_description then .description
+                 else "\(.dispatcher) \(.arg)" end),
+          keys: fullcombo($all),
+          dispatcher, arg } ]
+    | sort_by(.cat | ascii_downcase)
+' <<<"$binds")
+
+list=$(jq -r '.[] | "\(.cat)\t\(.keys)\t\(.desc)"' <<<"$rows" |
+       awk -F'\t' '{ printf "%-13s %-24s %s\n", $1, $2, $3 }')
+
+[[ ${1:-} == --print ]] && { echo "$list"; exit 0; }
+
+n=$(jq length <<<"$rows")
+idx=$(menu "󰌌  raccourcis" -format i -matching normal \
+        -mesg "$n raccourcis · tape une catégorie, une action ou des touches · Entrée exécute · dans le leader, SUPER peut rester enfoncé" \
+        <<<"$list") || exit 0
+[[ -n $idx ]] || exit 0
+
+read -r dispatcher arg < <(jq -r --argjson i "$idx" '.[$i] | "\(.dispatcher) \(.arg)"' <<<"$rows")
+case $dispatcher in
+    mouse|movewindow|resizewindow) notify -u low "Raccourci souris" "À faire avec la souris : $(jq -r --argjson i "$idx" '.[$i].keys' <<<"$rows")" ;;
+    *) hyprctl dispatch "$dispatcher" "$arg" >/dev/null ;;
+esac

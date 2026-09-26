@@ -1,0 +1,135 @@
+#!/usr/bin/env bash
+# ──────────────────────────────────────────────────────────────
+#  desk git — git contextuel au dossier du terminal actif
+#   desk git               menu (dépôt, branche, état dans l'en-tête)
+#   desk git run <id>      action directe (voir --list)
+#   desk git -C <dossier>  … sur un autre dossier
+#   desk git --list        actions pour la palette
+#  GitHub : URL déduite du remote ; PR via gh s'il est connecté,
+#  sinon page « compare » de la branche.
+# ──────────────────────────────────────────────────────────────
+source "$(dirname "$(readlink -f "$0")")/lib.sh"
+DESK_NAME=git
+
+ACTIONS=(
+    "status|Git · Status"
+    "diff|Git · Diff (non indexé)"
+    "diff-staged|Git · Diff indexé (staged)"
+    "log|Git · Log (graphe)"
+    "branches|Git · Changer de branche"
+    "new-branch|Git · Nouvelle branche"
+    "stash-push|Git · Stash : mettre de côté"
+    "stash-list|Git · Stash : appliquer / pop / supprimer"
+    "copy-branch|Git · Copier le nom de la branche"
+    "copy-hash|Git · Copier le hash du dernier commit"
+    "fetch|Git · Fetch (toutes les remotes)"
+    "gh-repo|Git · Ouvrir le dépôt sur GitHub"
+    "gh-pr|Git · Ouvrir / créer la PR de la branche"
+)
+
+CWD=""
+repo() {   # racine du dépôt (dossier du terminal actif, ou -C)
+    local d=${CWD:-$(active_cwd)} r
+    r=$(git -C "$d" rev-parse --show-toplevel 2>/dev/null) || die "Pas de dépôt git dans $(tilde "$d")"
+    printf '%s' "$r"
+}
+g() { git -C "$REPO" "$@"; }
+branch() { g symbolic-ref --short -q HEAD || g rev-parse --short HEAD; }
+
+web_url() {   # URL https du remote origin (ssh, alias ssh, https)
+    local u host path
+    u=$(g remote get-url origin 2>/dev/null) || die "Pas de remote « origin »"
+    case $u in
+        http*://*) host=${u#*://}; host=${host#*@}; path=${host#*/}; host=${host%%/*} ;;
+        ssh://*)   host=${u#ssh://}; host=${host#*@}; path=${host#*/}; host=${host%%/*}; host=${host%%:*} ;;
+        *:*)       host=${u%%:*}; host=${host#*@}; path=${u#*:} ;;
+        *)         die "Remote non reconnu : $u" ;;
+    esac
+    # alias ~/.ssh/config (ex. Host github → github.com)
+    [[ $host == *.* ]] || host=$(ssh -G "$host" 2>/dev/null | awk '$1 == "hostname" { print $2; exit }')
+    printf 'https://%s/%s' "$host" "${path%.git}"
+}
+
+a_status()      { float_pager "git status · $(basename "$REPO")" "$REPO" "git -c color.status=always status; echo; git -c color.ui=always log --oneline -5"; }
+a_diff()        { float_pager "git diff · $(basename "$REPO")" "$REPO" "git diff --color=always --stat; echo; git diff --color=always"; }
+a_diff_staged() { float_pager "git diff --staged · $(basename "$REPO")" "$REPO" "git diff --staged --color=always --stat; echo; git diff --staged --color=always"; }
+a_log()         { float_pager "git log · $(basename "$REPO")" "$REPO" "git log --graph --decorate --all --color=always -n 500 --format='%C(yellow)%h%C(reset) %C(dim)%ad%C(reset) %s %C(cyan)%an%C(reset)%C(auto)%d' --date=short"; }
+
+a_branches() {
+    local b cur; cur=$(branch)
+    b=$(g for-each-ref --sort=-committerdate --format='%(refname:short)	%(committerdate:relative)	%(subject)' refs/heads refs/remotes |
+        grep -v '/HEAD	' | awk -F'\t' -v c="$cur" '{ printf "%s %-38s %-16s %s\n", ($1 == c ? "●" : " "), $1, $2, substr($3, 1, 50) }' |
+        menu "  branche" -mesg "Branche actuelle : $cur") || exit 0
+    b=$(awk '{print $2}' <<<"$b"); [[ -n $b && $b != "$cur" ]] || exit 0
+    local out
+    if g show-ref -q --verify "refs/heads/$b"; then out=$(g switch "$b" 2>&1) || die "$out"
+    else out=$(g switch --track "$b" 2>&1) || die "$out"; fi
+    notify -u low -i vcs-branch "Branche : $(branch)" "$(tail -n2 <<<"$out")"
+}
+a_new_branch() {
+    local b out
+    b=$(menu "  nouvelle branche" -l 0 -mesg "Depuis $(branch)" </dev/null) || exit 0
+    [[ -n $b ]] || exit 0
+    out=$(g switch -c "$b" 2>&1) || die "$out"
+    notify -u low -i vcs-branch "Nouvelle branche : $b"
+}
+
+a_stash_push() {
+    local m out
+    m=$(menu "󰆓  stash" -l 0 -mesg "Message (optionnel) · fichiers non suivis inclus" </dev/null) || exit 0
+    out=$(g stash push -u ${m:+-m "$m"} 2>&1) || die "$out"
+    notify -u low -i document-save-symbolic "Stash" "$out"
+}
+a_stash_list() {
+    local s act out
+    s=$(g stash list --format='%gd	%cr	%gs' | awk -F'\t' '{ printf "%-10s %-16s %s\n", $1, $2, $3 }')
+    [[ -n $s ]] || die "Aucun stash"
+    s=$(menu "󰆓  stash" <<<"$s") || exit 0; s=${s%% *}
+    act=$(printf 'Appliquer (garder le stash)\nPop (appliquer et supprimer)\nVoir le contenu\nSupprimer\n' | menu "$s") || exit 0
+    case $act in
+        Appliquer*) out=$(g stash apply "$s" 2>&1) || die "$out"; notify -u low "Stash appliqué" "$s" ;;
+        Pop*)       out=$(g stash pop "$s" 2>&1)   || die "$out"; notify -u low "Stash appliqué et supprimé" "$s" ;;
+        Voir*)      float_pager "git stash show $s" "$REPO" "git stash show -p --stat --color=always '$s'" ;;
+        Supprimer*) confirm "Supprimer $s ?" && { g stash drop "$s" >/dev/null; notify -u low "Stash supprimé" "$s"; } ;;
+    esac
+}
+
+a_copy_branch() { local b; b=$(branch); clip_set "$b"; notify -u low -i edit-copy-symbolic "Branche copiée" "$b"; }
+a_copy_hash()   { local h; h=$(g rev-parse HEAD); clip_set "$h"; notify -u low -i edit-copy-symbolic "Hash copié" "$h · $(g log -1 --format=%s)"; }
+a_fetch() {
+    local out; notify -u low -i emblem-synchronizing-symbolic "git fetch…" "$(basename "$REPO")"
+    out=$(g fetch --all --prune 2>&1) || die "$out"
+    local ab; ab=$(g rev-list --left-right --count '@{upstream}...HEAD' 2>/dev/null | awk '{ print "↓" $1 " ↑" $2 }' || echo "pas d'upstream")
+    notify -u low -i emblem-ok-symbolic "Fetch terminé · $(branch)" "$ab"
+}
+
+a_gh_repo() { local u; u=$(web_url); open_url "$u"; notify -u low -i web-browser-symbolic "GitHub" "$u"; }
+a_gh_pr() {
+    local b; b=$(branch)
+    if command -v gh >/dev/null && gh auth status &>/dev/null; then
+        (cd "$REPO" && gh pr view --web &>/dev/null) || (cd "$REPO" && gh pr create --web &>/dev/null) || die "gh n'a pas pu ouvrir la PR"
+    else
+        open_url "$(web_url)/compare/$(urlencode "$b" | sed 's/%2F/\//g')?expand=1"
+        notify -u low -i web-browser-symbolic "PR · $b" "gh non connecté : page compare ouverte (gh auth login pour mieux)"
+    fi
+}
+
+menu_main() {
+    local b st ab
+    b=$(branch)
+    st=$(g status --porcelain | awk '{ n++ } END { print n + 0 }')
+    ab=$(g rev-list --left-right --count '@{upstream}...HEAD' 2>/dev/null | awk '{ print " · ↓" $1 " ↑" $2 }' || true)
+    menu_actions "  git" "<b>$(basename "$REPO")</b>  ·  $b  ·  $st modif.$ab  ·  $(tilde "$REPO")"
+}
+
+[[ ${1:-} == -C ]] && { CWD=$2; shift 2; }
+case "${1:-}" in
+    --list) list_actions; exit 0 ;;
+    -h|--help) sed -n '3,9p' "$0" | sed 's/^#  \{0,1\}//'; exit 0 ;;
+esac
+REPO=$(repo)
+case "${1:-}" in
+    "")  menu_main ;;
+    run) shift; run_action "$@" ;;
+    *)   run_action "$@" ;;
+esac

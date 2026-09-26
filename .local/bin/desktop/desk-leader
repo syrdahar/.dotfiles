@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+# ──────────────────────────────────────────────────────────────
+#  desk leader — touche leader (SUPER+Espace, submap "leader")
+#   desk leader enter          active le submap + notification which-key
+#   desk leader cancel         quitte le leader
+#   desk leader <module> […]   quitte le leader puis lance "desk <module> […]"
+#
+#  La liste des lettres affichée dans la notification est lue dans
+#  `hyprctl binds` (submap leader) : rien à maintenir à la main.
+#  Un veilleur ferme la notification dès que le leader se termine
+#  et annule le leader après $TIMEOUT secondes sans touche.
+# ──────────────────────────────────────────────────────────────
+source "$(dirname "$(readlink -f "$0")")/lib.sh"
+DESK_NAME=leader
+TIMEOUT=5
+TOKEN=$DESK_RUN/leader.token
+
+close_hint() {
+    local id
+    id=$(cat "$DESK_RUN/leader.id" 2>/dev/null) || return 0
+    rm -f "$DESK_RUN/leader.id"
+    gdbus call --session --dest org.freedesktop.Notifications \
+        --object-path /org/freedesktop/Notifications \
+        --method org.freedesktop.Notifications.CloseNotification "$id" >/dev/null 2>&1 || true
+}
+
+leave() {
+    rm -f "$TOKEN"
+    [[ $(hyprctl submap 2>/dev/null) == leader ]] && hyprctl dispatch submap reset >/dev/null
+    close_hint
+}
+
+hint_body() {
+    hyprctl binds -j | jq -r "$DESK_JQ"'
+        [ .[] | select(.submap == "leader" and .has_description and .modmask == 0) ]
+        | sort_by([(.key | length > 1), (.key | ascii_downcase)])   # lettres, puis Espace / Échap
+        | .[] | "<b>\(keyname | ascii_downcase)</b>   \(.description | gsub("&"; "&amp;") | gsub("<"; "&lt;"))"'
+}
+
+watch_leader() {   # lancé en arrière-plan par "enter"
+    local tok=$1 i
+    for (( i = 0; i < TIMEOUT * 10 / 2; i++ )); do
+        sleep 0.2
+        [[ $(cat "$TOKEN" 2>/dev/null) == "$tok" ]] || exit 0      # un autre leader a pris le relais
+        [[ $(hyprctl submap 2>/dev/null) == leader ]] || { close_hint; rm -f "$TOKEN"; exit 0; }
+    done
+    leave
+}
+
+case "${1:-}" in
+    enter)
+        hyprctl dispatch submap leader >/dev/null
+        tok=$RANDOM$RANDOM; echo "$tok" >"$TOKEN"
+        notify-send -a desk -p -u low -t $(( TIMEOUT * 1000 )) -i input-keyboard-symbolic \
+            -h string:x-canonical-private-synchronous:desk-leader -h boolean:transient:true \
+            "Leader  ·  une touche (Échap annule)" "$(hint_body)" >"$DESK_RUN/leader.id" 2>/dev/null || true
+        setsid -f "$0" --watch "$tok" >/dev/null 2>&1
+        ;;
+    --watch) watch_leader "$2" ;;
+    cancel)  leave ;;
+    "")      sed -n '3,6p' "$0" | sed 's/^#  \{0,1\}//'; exit 1 ;;
+    *)       leave; exec "$DESK_DIR/desk" "$@" ;;
+esac

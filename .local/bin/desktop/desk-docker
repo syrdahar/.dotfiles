@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+# ──────────────────────────────────────────────────────────────
+#  desk docker — conteneurs et stacks compose
+#   desk docker                    liste (● en marche · ○ arrêté), groupée par projet compose
+#   desk docker container <nom>    actions sur un conteneur
+#   desk docker run <id>           action directe (voir --list)
+#   desk docker --list             actions pour la palette
+#  Actions : start, stop, restart, logs (suivi), shell (exec), inspect ;
+#  stack compose : tout démarrer / arrêter / redémarrer, logs de la stack.
+# ──────────────────────────────────────────────────────────────
+source "$(dirname "$(readlink -f "$0")")/lib.sh"
+DESK_NAME=docker
+
+ACTIONS=(
+    "containers|Docker · Conteneurs (start, stop, logs, shell…)"
+    "stacks|Docker · Stacks compose (tout démarrer / arrêter)"
+)
+
+command -v docker >/dev/null || die "docker n'est pas installé"
+docker info >/dev/null 2>&1 || die "Le démon docker ne répond pas"
+
+# nom<TAB>état<TAB>statut<TAB>image<TAB>projet compose
+containers() {
+    docker ps -a --format '{{.Names}}	{{.State}}	{{.Status}}	{{.Image}}	{{.Label "com.docker.compose.project"}}' |
+        sort -t$'\t' -k5,5 -k1,1
+}
+
+container_menu() {
+    local c=$1 state act
+    state=$(docker inspect -f '{{.State.Status}}' "$c" 2>/dev/null) || die "Conteneur introuvable : $c"
+    local -a acts=()
+    if [[ $state == running ]]; then acts=("Logs (suivi)" "Shell (exec)" "Redémarrer" "Arrêter" "Inspecter")
+    else acts=("Démarrer" "Logs" "Inspecter"); fi
+    act=$(printf '%s\n' "${acts[@]}" | menu "🐳 $c" -mesg "$(docker ps -a --filter "name=^${c}\$" --format '{{.Status}} · {{.Image}}')") || exit 0
+    case $act in
+        Logs*)       float_run "logs · $c" "$HOME" docker logs -f --tail 300 "$c" ;;
+        Shell*)      term_run "shell · $c" "$HOME" docker exec -it "$c" sh -c 'command -v bash >/dev/null && exec bash || exec sh' ;;
+        Redémarrer)  notify -u low "Redémarrage…" "$c"; docker restart "$c" >/dev/null && notify -u low -i emblem-ok-symbolic "Conteneur redémarré" "$c" ;;
+        Arrêter)     docker stop "$c" >/dev/null && notify -u low -i process-stop-symbolic "Conteneur arrêté" "$c" ;;
+        Démarrer)    docker start "$c" >/dev/null && notify -u low -i emblem-ok-symbolic "Conteneur démarré" "$c" ;;
+        Inspecter)   docker inspect "$c" >"$DESK_RUN/inspect.json"; show_text "inspect · $c" "$DESK_RUN/inspect.json" json ;;
+    esac
+}
+
+a_containers() {
+    local rows idx
+    rows=$(containers); [[ -n $rows ]] || die "Aucun conteneur"
+    idx=$(awk -F'\t' '{ printf "%s %-30s %-18s %-26s %s\n", ($2 == "running" ? "●" : "○"), $1, ($5 == "" ? "-" : $5), substr($3, 1, 26), $4 }' <<<"$rows" |
+          menu "🐳  docker" -format i -mesg "$(grep -c $'\trunning\t' <<<"$rows") en marche / $(wc -l <<<"$rows") · colonnes : nom, stack, statut, image") || exit 0
+    [[ -n $idx ]] || exit 0
+    container_menu "$(sed -n "$((idx + 1))p" <<<"$rows" | cut -f1)"
+}
+
+a_stacks() {
+    local rows p act ids
+    rows=$(containers | awk -F'\t' '$5 != "" { t[$5]++; if ($2 == "running") r[$5]++ } END { for (p in t) printf "%-30s %d/%d en marche\n", p, r[p], t[p] }' | sort)
+    [[ -n $rows ]] || die "Aucune stack compose"
+    p=$(menu "🐳  stacks" <<<"$rows") || exit 0; p=${p%% *}; [[ -n $p ]] || exit 0
+    act=$(printf 'Tout démarrer\nTout redémarrer\nTout arrêter\nLogs de la stack (suivi)\n' | menu "🐳 $p") || exit 0
+    ids=$(docker ps -aq --filter "label=com.docker.compose.project=$p")
+    # shellcheck disable=SC2086
+    case $act in
+        "Tout démarrer")   docker start $ids >/dev/null && notify -u low -i emblem-ok-symbolic "Stack $p démarrée" ;;
+        "Tout redémarrer") notify -u low "Redémarrage de $p…"; docker restart $ids >/dev/null && notify -u low -i emblem-ok-symbolic "Stack $p redémarrée" ;;
+        "Tout arrêter")    confirm "Arrêter les $(wc -w <<<"$ids") conteneurs de $p ?" && docker stop $ids >/dev/null && notify -u low -i process-stop-symbolic "Stack $p arrêtée" ;;
+        Logs*)             float_run "logs · $p" "$HOME" docker compose -p "$p" logs -f --tail 100 ;;
+    esac
+}
+
+case "${1:-}" in
+    "")        a_containers ;;
+    container) container_menu "${2:?usage: desk docker container <nom>}" ;;
+    run)       shift; run_action "$@" ;;
+    --list)    list_actions ;;
+    *)         sed -n '3,9p' "$0" | sed 's/^#  \{0,1\}//'; exit 1 ;;
+esac

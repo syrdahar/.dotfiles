@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# ──────────────────────────────────────────────────────────────
+#  desk — point d'entrée unique du command center
+#   desk <module> [args…]   lance desk-<module> (même dossier)
+#   desk                    liste les modules
+#  Les modules sont préfixés "desk-" pour ne jamais masquer git, docker, ssh…
+# ──────────────────────────────────────────────────────────────
+set -euo pipefail
+DIR=$(dirname "$(readlink -f "$0")")
+
+if [[ $# -eq 0 || $1 == -h || $1 == --help ]]; then
+    echo "usage: desk <module> [args…]"
+    echo "modules :"
+    for f in "$DIR"/desk-*; do [[ -x $f ]] && echo "  ${f##*/desk-}"; done
+    exit 0
+fi
+
+mod=$1; shift
+if [[ ! -x $DIR/desk-$mod ]]; then
+    notify-send -a desk -u critical -i dialog-error-symbolic "desk" "Module inconnu : $mod" 2>/dev/null || true
+    echo "desk: module inconnu : $mod" >&2
+    exit 1
+fi
+exec "$DIR/desk-$mod" "$@"

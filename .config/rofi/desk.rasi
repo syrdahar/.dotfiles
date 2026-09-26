@@ -1,0 +1,15 @@
+/* Menus du command center (palette, cheatsheet, menus desk-*) :
+   thème neon (et son look actif), compact, chasse fixe pour aligner les raccourcis.
+   Taille alignée sur alacritty (8 pt) et waybar (11 px). */
+@import "~/.config/rofi/neon.rasi"
+
+* { font: "JetBrainsMono Nerd Font Mono 8"; }
+
+window   { width: 660px; border-radius: 14px; }
+mainbox  { padding: 8px; spacing: 6px; }
+inputbar { padding: 6px 10px; spacing: 8px; border-radius: 9px; }
+message  { padding: 5px 10px; border-radius: 8px; }
+textbox  { text-color: @subtext; }
+listview { lines: 12; spacing: 1px; }
+element  { padding: 3px 8px; border-radius: 7px; }
+element-icon { enabled: false; }

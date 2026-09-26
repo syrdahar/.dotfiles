@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# ──────────────────────────────────────────────────────────────
+#  desk scratch — scratchpads (special workspaces), lancés à la demande
+#   desk scratch term    terminal flottant (session tmux "scratch", survit à la fermeture)
+#   desk scratch btop    moniteur système
+#  Taille / position / workspace : ~/.config/hypr/desktop-rules.conf
+#  (Les notes restent sur SUPER+A via scripts/notes.sh.)
+# ──────────────────────────────────────────────────────────────
+source "$(dirname "$(readlink -f "$0")")/lib.sh"
+DESK_NAME=scratch
+
+toggle() {   # toggle <nom> <classe> <commande> <taille "L% H%" de l'écran>
+    local name=$1 class=$2 cmd=$3 ws i
+    ws=$(hyprctl clients -j | jq -r --arg c "$class" 'first(.[] | select(.class == $c) | .workspace.name) // ""')
+    if [[ -z $ws ]]; then
+        hyprctl dispatch exec "$cmd" >/dev/null
+        for (( i = 0; i < 30; i++ )); do       # jusqu'à 3 s pour que la fenêtre apparaisse
+            sleep 0.1
+            hyprctl clients -j | jq -e --arg c "$class" 'any(.[]; .class == $c)' >/dev/null && break
+        done
+        (( i < 30 )) || die "La fenêtre $name n'est pas apparue ($cmd)"
+    elif [[ $ws != "special:$name" ]]; then
+        # la fenêtre a été déplacée ailleurs : on la ramène dans son scratchpad
+        hyprctl dispatch movetoworkspacesilent "special:$name,class:^($class)\$" >/dev/null
+    fi
+    hyprctl dispatch togglespecialworkspace "$name" >/dev/null
+
+    # Multi-écran : s'il vient d'apparaître, on le taille et le centre sur l'écran
+    # courant (sinon il garde la taille calculée pour l'écran où il est né).
+    if [[ $(hyprctl monitors -j | jq -r '.[] | select(.focused) | .specialWorkspace.name') == "special:$name" ]]; then
+        hyprctl --batch "dispatch focuswindow class:^($class)\$ ; dispatch resizeactive exact $4 ; dispatch centerwindow 1" >/dev/null
+    fi
+}
+
+case "${1:-}" in
+    term) toggle term desk-term "alacritty --class desk-term -T 'scratch · terminal' -e tmux new-session -A -s scratch" "70% 65%" ;;
+    btop) toggle btop desk-btop "alacritty --class desk-btop -T 'scratch · btop' -e btop" "65% 70%" ;;
+    *)    sed -n '3,5p' "$0" | sed 's/^#  \{0,1\}//'; exit 1 ;;
+esac

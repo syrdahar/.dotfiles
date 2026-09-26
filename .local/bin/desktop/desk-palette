@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+# ──────────────────────────────────────────────────────────────
+#  desk palette — palette de commandes rofi
+#   desk palette            ouvre la palette
+#   desk palette --print    affiche la liste (libellé + raccourci) sans rofi
+#  Les actions sont déclarées dans actions.sh ; le raccourci de
+#  chacune est retrouvé dans `hyprctl binds` (apprendre en utilisant).
+# ──────────────────────────────────────────────────────────────
+source "$(dirname "$(readlink -f "$0")")/lib.sh"
+DESK_NAME=palette
+
+action() { printf '%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "${4:-}"; }
+actions=$(source "$DESK_DIR/actions.sh")
+binds=$(hyprctl binds -j)
+
+# une ligne affichée par action : "libellé ……… raccourci(s)"
+list=$(jq -rR --argjson all "$binds" "$DESK_JQ"'
+    split("\t") as [$label, $kind, $target, $keysfrom]
+    | [ $all[]
+        | select(
+            if $kind == "bind" then .description == $target
+            elif $keysfrom != "" then .description == $keysfrom
+            else .dispatcher == "exec" and (.arg | norm) == ($target | norm) end)
+        | select(.submap == "" or .modmask == 0 or .has_description)   # pas les variantes SUPER du leader
+        | fullcombo($all) ] | unique_by(.) as $keys
+    | "\($label)\t\($keys | join("  ·  "))"
+' <<<"$actions" | awk -F'\t' '{ printf "%-48s %s\n", $1, $2 }')
+
+[[ ${1:-} == --print ]] && { echo "$list"; exit 0; }
+
+idx=$(menu "󰘳  palette" -format i -matching fuzzy \
+        -mesg "Tape une action ou un raccourci · Entrée exécute" <<<"$list") || exit 0
+[[ -n $idx ]] || exit 0
+
+IFS=$'\t' read -r label kind target _ < <(sed -n "$((idx + 1))p" <<<"$actions")
+case $kind in
+    bind)
+        read -r dispatcher arg < <(jq -r --arg d "$target" \
+            'first(.[] | select(.description == $d)) | "\(.dispatcher) \(.arg)"' <<<"$binds")
+        [[ -n ${dispatcher:-} ]] || die "Bind introuvable : $target"
+        hyprctl dispatch "$dispatcher" "$arg" >/dev/null ;;
+    cmd)
+        setsid -f bash -c "$target" >/dev/null 2>&1 ;;
+    *)  die "Type d'action inconnu pour « $label » : $kind" ;;
+esac

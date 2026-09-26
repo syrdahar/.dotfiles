@@ -1,0 +1,142 @@
+#!/usr/bin/env bash
+# ──────────────────────────────────────────────────────────────
+#  desk project — projets = dépôts git sous les racines de ~/.config/desktop/projects.conf
+#   desk project                 choisir un projet (récents en premier, ● = ouvert)
+#   desk project open <dossier>  ouvrir / rejoindre un projet
+#   desk project run <id>        action (voir --list)
+#   desk project --list          actions pour la palette
+#
+#  Ouvrir un projet :
+#   - workspace Hyprland dédié « name:<projet> » (on y retourne s'il existe déjà) ;
+#   - session tmux <projet> : fenêtre « edit » (nvim .) + une fenêtre par commande
+#     de la config du projet ; attachée dans un premier alacritty ;
+#   - un second alacritty (shell) dans le dossier ;
+#   - URL / mobile de la config (projects.d/<projet>.conf) lancés ensuite.
+# ──────────────────────────────────────────────────────────────
+source "$(dirname "$(readlink -f "$0")")/lib.sh"
+DESK_NAME=project
+ROOTS=$DESK_CONF/projects.conf
+PCONF=$DESK_CONF/projects.d
+HIST=$DESK_STATE/projects.hist
+
+ACTIONS=(
+    "pick|Projet · Ouvrir / rejoindre un projet"
+    "close|Projet · Fermer un projet (session tmux + fenêtres)"
+    "config|Projet · Configurer le projet courant (commandes, URL, mobile)"
+    "roots|Projet · Modifier les dossiers racines"
+)
+
+roots() { sed -e 's/#.*//' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' "$ROOTS" | grep . | sed "s#^~#$HOME#"; }
+
+scan() {   # tous les dépôts (dossiers contenant .git), un par ligne
+    local r
+    roots | while read -r r; do
+        [[ -d $r ]] || continue
+        [[ -e $r/.git ]] && echo "$r"
+        fd -H -t d -t f --prune --max-depth 4 --exclude node_modules --exclude .venv '^\.git$' "$r" 2>/dev/null | sed 's#/\.git/\?$##'
+    done | awk '!seen[$0]++'
+}
+
+# nom de session = nom du dossier (nettoyé) ; si déjà pris par un autre dossier → parent-nom
+session_name() {
+    local dir=$1 n p
+    n=$(basename "$dir" | tr -c 'A-Za-z0-9_\n-' '_')
+    if tmux has-session -t "=$n" 2>/dev/null; then
+        p=$(tmux list-sessions -F '#{session_name}	#{session_path}' | awk -F'\t' -v n="$n" '$1 == n { print $2 }')
+        [[ $p == "$dir" ]] || n="$(basename "$(dirname "$dir")" | tr -c 'A-Za-z0-9_\n-' '_')-$n"
+    fi
+    printf '%s' "$n"
+}
+
+ws_windows() { hyprctl clients -j | jq --arg w "name:$1" '[.[] | select(.workspace.name == $w or .workspace.name == ($w | ltrimstr("name:")))] | length'; }
+
+open_project() {
+    local dir=${1%/} name
+    [[ -d $dir ]] || die "Dossier introuvable : $dir"
+    name=$(session_name "$dir")
+    [[ -n $name ]] || die "Nom de projet vide pour $dir"
+    { echo "$dir"; grep -vxF "$dir" "$HIST" 2>/dev/null | head -50; } >"$HIST.tmp" && mv "$HIST.tmp" "$HIST"
+
+    if (( $(ws_windows "$name") > 0 )); then     # déjà ouvert : on y va
+        hyprctl dispatch workspace "name:$name" >/dev/null
+        return
+    fi
+
+    # config du projet (optionnelle)
+    local -a cmds=(); local url="" url_delay=5 mobile="" editor="nvim ."
+    # shellcheck source=/dev/null
+    [[ -f $PCONF/$name.conf ]] && source "$PCONF/$name.conf"
+
+    if ! tmux has-session -t "=$name" 2>/dev/null; then
+        tmux new-session -d -s "$name" -c "$dir" -n edit
+        tmux send-keys -t "=$name:edit" "$editor" Enter
+        local c
+        for c in "${cmds[@]}"; do
+            tmux new-window -d -t "=$name" -n "${c%%:*}" -c "$dir"
+            tmux send-keys -t "=$name:${c%%:*}" "${c#*:}" Enter
+        done
+        tmux select-window -t "=$name:edit"
+    fi
+
+    hyprctl dispatch workspace "name:$name" >/dev/null
+    hyprctl dispatch exec "[workspace name:$name silent] $DESK_TERMINAL -T '$name · tmux' --working-directory '$dir' -e tmux new-session -A -s '$name'" >/dev/null
+    sleep 0.3
+    hyprctl dispatch exec "[workspace name:$name silent] $DESK_TERMINAL -T '$name · shell' --working-directory '$dir'" >/dev/null
+
+    if [[ -n $url ]]; then
+        setsid -f bash -c 'sleep "$1"; "$2" url "$3"' _ "$url_delay" "$0" "$url" >/dev/null 2>&1
+    fi
+    case $mobile in
+        scrcpy)     "$DESK_DIR/desk" mobile run scrcpy || true ;;
+        emulator:*) "$DESK_DIR/desk" mobile run emulator "${mobile#emulator:}" || true ;;
+    esac
+    local extra=""; (( ${#cmds[@]} )) && extra=" · ${#cmds[@]} commande(s) lancée(s) dans tmux"
+    notify -u low -i folder-open-symbolic "Projet $name" "$(tilde "$dir")$extra"
+}
+
+a_pick() {
+    local -a all=(); local d
+    mapfile -t all < <( { grep -vxF '' "$HIST" 2>/dev/null | while read -r d; do [[ -d $d ]] && echo "$d"; done; scan; } | awk '!seen[$0]++')
+    (( ${#all[@]} )) || die "Aucun dépôt git trouvé sous les racines de $ROOTS"
+    local open; open=$(tmux list-sessions -F '#{session_path}' 2>/dev/null || true)
+    local idx
+    idx=$(for d in "${all[@]}"; do
+            m=" "; grep -qxF "$d" <<<"$open" && m="●"
+            printf '%s %-28s %s\n' "$m" "$(basename "$d")" "$(tilde "$(dirname "$d")")"
+          done | menu "󰉋  projet" -format i -mesg "${#all[@]} projets · ● session tmux ouverte · racines : Projet · Modifier les dossiers racines") || exit 0
+    [[ -n $idx ]] && open_project "${all[$idx]}"
+}
+
+a_close() {
+    local sessions s
+    sessions=$(tmux list-sessions -F '#{session_name}	#{session_path}' 2>/dev/null | grep -v '^scratch	' || true)
+    [[ -n $sessions ]] || die "Aucune session tmux de projet ouverte"
+    s=$(awk -F'\t' '{ printf "%-24s %s\n", $1, $2 }' <<<"$sessions" | sed "s#$HOME#~#" | menu "󰅖  fermer") || exit 0
+    s=${s%% *}; [[ -n $s ]] || exit 0
+    confirm "Fermer $s (session tmux et fenêtres du workspace) ?" || exit 0
+    hyprctl clients -j | jq -r --arg w "name:$s" '.[] | select(.workspace.name == $w or .workspace.name == ($w | ltrimstr("name:"))) | .address' |
+        while read -r a; do hyprctl dispatch closewindow "address:$a" >/dev/null; done
+    tmux kill-session -t "=$s" 2>/dev/null || true
+    notify -u low -i window-close-symbolic "Projet $s fermé"
+}
+
+a_config() {
+    local dir name f
+    dir=$(git -C "$(active_cwd)" rev-parse --show-toplevel 2>/dev/null) || die "Le terminal actif n'est pas dans un dépôt git"
+    name=$(session_name "$dir"); f=$PCONF/$name.conf
+    mkdir -p "$PCONF"
+    [[ -f $f ]] || sed "s/^#  Exemple de config de projet/#  Config du projet $name/" "$PCONF/_exemple.conf" >"$f"
+    float_run "config · $name" "$dir" nvim "$f"
+}
+
+a_roots() { float_run "racines des projets" "$DESK_CONF" nvim "$ROOTS"; }
+
+case "${1:-}" in
+    "")     a_pick ;;
+    open)   open_project "$(readlink -f "${2:?usage: desk project open <dossier>}")" ;;
+    url)    open_url "$2" ;;
+    run)    shift; run_action "$@" ;;
+    --list) list_actions ;;
+    scan)   scan ;;
+    *)      sed -n '3,7p' "$0" | sed 's/^#  \{0,1\}//'; exit 1 ;;
+esac

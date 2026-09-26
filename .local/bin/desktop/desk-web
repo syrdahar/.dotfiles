@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# ──────────────────────────────────────────────────────────────
+#  desk web — recherche web avec préfixes
+#   desk web                 rofi : « gh react query », « mdn flexbox », « aur rofi »…
+#   desk web "<requête>"     en CLI
+#  Sans préfixe : DESK_SEARCH_DEFAULT (desk.conf, Google par défaut).
+#  Entrée sur un champ vide : recherche le contenu du presse-papier.
+# ──────────────────────────────────────────────────────────────
+source "$(dirname "$(readlink -f "$0")")/lib.sh"
+DESK_NAME=web
+
+declare -A ENGINE=(
+    [gh]='https://github.com/search?type=repositories&q=%s'
+    [ghc]='https://github.com/search?type=code&q=%s'
+    [mdn]='https://developer.mozilla.org/en-US/search?q=%s'
+    [npm]='https://www.npmjs.com/search?q=%s'
+    [aur]='https://aur.archlinux.org/packages?K=%s'
+    [pac]='https://archlinux.org/packages/?q=%s'
+    [aw]='https://wiki.archlinux.org/index.php?search=%s'
+    [so]='https://stackoverflow.com/search?q=%s'
+    [yt]='https://www.youtube.com/results?search_query=%s'
+)
+declare -A LABEL=(
+    [gh]='GitHub (dépôts)' [ghc]='GitHub (code)' [mdn]='MDN' [npm]='npm' [aur]='AUR'
+    [pac]='Paquets Arch' [aw]='Wiki Arch' [so]='Stack Overflow' [yt]='YouTube'
+)
+ORDER=(gh ghc mdn npm so aur pac aw yt)
+
+search() {
+    local q=$1 pre=${1%% *} url
+    if [[ $q == *" "* && -n ${ENGINE[$pre]:-} ]]; then url=${ENGINE[$pre]}; q=${q#* }
+    else url=${DESK_SEARCH_DEFAULT:-https://www.google.com/search?q=%s}; pre=""; fi
+    open_url "${url//%s/$(urlencode "$q")}"
+    notify -u low -i system-search-symbolic "Recherche${pre:+ · ${LABEL[$pre]:-web}}" "$q"
+}
+
+if (( $# )); then search "$*"; exit 0; fi
+
+hints=$(for k in "${ORDER[@]}"; do printf '%-4s %s\n' "$k" "${LABEL[$k]}"; done)
+q=$(menu "󰖟  web" -format f -mesg "Préfixe + requête (ex. « npm zod ») · sans préfixe : Google · vide : presse-papier" <<<"$hints") || exit 0
+if [[ -z ${q// } ]]; then q=$(clip_get | head -c 300 | tr '\n' ' '); [[ -n ${q// } ]] || exit 0; fi
+search "$q"

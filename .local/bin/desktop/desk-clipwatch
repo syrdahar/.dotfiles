@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+# ──────────────────────────────────────────────────────────────
+#  desk clipwatch — filtre du presse-papier AVANT cliphist
+#   Lancé par : wl-paste --type text --watch ~/.local/bin/desktop/desk clipwatch
+#   (remplace « wl-paste --type text --watch cliphist store »)
+#
+#  - contenu marqué sensible (wl-copy --sensitive, gestionnaires de mots
+#    de passe) ou reconnu comme secret (lib.sh : clés, tokens, JWT,
+#    clés privées, password=…) → PAS stocké, presse-papier vidé après
+#    $CLEAR_AFTER s s'il contient toujours la même chose ;
+#  - le reste est passé tel quel à « cliphist store ».
+#
+#   desk clipwatch --test < fichier   dit si le contenu serait filtré (sans rien stocker)
+# ──────────────────────────────────────────────────────────────
+source "$(dirname "$(readlink -f "$0")")/lib.sh"
+DESK_NAME=clipwatch
+trap - ERR                      # lancé à chaque copie : pas de notif d'erreur en rafale
+CLEAR_AFTER=30
+OWN_CLEAR=$DESK_RUN/clip-own-clear
+
+schedule_clear() {   # vide le presse-papier plus tard, seulement s'il n'a pas changé
+    local sum=$1
+    setsid -f bash -c '
+        sleep "$1"
+        [[ $(wl-paste --no-newline 2>/dev/null | sha256sum | cut -d" " -f1) == "$2" ]] || exit 0
+        touch "$3"; wl-copy --clear
+        notify-send -a desk -u low -i edit-clear-symbolic "Presse-papier vidé" "Contenu sensible effacé"
+    ' _ "$CLEAR_AFTER" "$sum" "$OWN_CLEAR" >/dev/null 2>&1
+}
+
+if [[ ${1:-} == --test ]]; then
+    is_sensitive && echo "sensible : ne serait pas stocké" || echo "normal : serait stocké"
+    exit 0
+fi
+
+case ${CLIPBOARD_STATE:-data} in
+    clear)
+        # notre propre effacement : cliphist supprimerait sa dernière entrée (légitime)
+        [[ -e $OWN_CLEAR ]] && { rm -f "$OWN_CLEAR"; exit 0; }
+        exec cliphist store ;;
+    sensitive)
+        schedule_clear "$(wl-paste --no-newline 2>/dev/null | sha256sum | cut -d' ' -f1)"
+        exit 0 ;;
+    nil)
+        exit 0 ;;
+esac
+
+tmp=$(mktemp "$DESK_RUN/clip.XXXXXX"); trap 'rm -f "$tmp"' EXIT
+cat >"$tmp"
+
+if head -c 1000000 "$tmp" | is_sensitive; then
+    schedule_clear "$(sha256sum <"$tmp" | cut -d' ' -f1)"
+    notify -u low -i security-high-symbolic "Contenu sensible détecté" \
+        "Non enregistré dans l'historique · effacé du presse-papier dans ${CLEAR_AFTER} s"
+    exit 0
+fi
+
+cliphist store <"$tmp"

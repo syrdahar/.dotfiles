@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# ──────────────────────────────────────────────────────────────
+#  desk calc — calculatrice / conversions (qalc) dans rofi
+#   desk calc              boucle : tape un calcul, Entrée → résultat copié, on continue
+#   desk calc "<expr>"     calcule en CLI (ex. desk calc "10 km to mi")
+#  Exemples : 2^10 · 80 * 15% · 72 kg to lb · 3h + 45min to min · 1 GiB to MB · 0x1F to dec
+#  « ans » = résultat précédent. Échap pour fermer.
+# ──────────────────────────────────────────────────────────────
+source "$(dirname "$(readlink -f "$0")")/lib.sh"
+DESK_NAME=calc
+
+calc() { qalc -t -- "$1" 2>&1 | tail -n1; }
+
+if (( $# )); then calc "$*"; exit 0; fi
+
+hist=() ans="" mesg="Tape un calcul ou une conversion · Entrée : résultat copié · « ans » = précédent"
+while :; do
+    # -format f : on récupère toujours ce qui est tapé (pas la ligne d'historique surlignée)
+    expr=$(printf '%s\n' "${hist[@]}" | menu "󰃬  calcul" -format f -mesg "$mesg") || exit 0
+    [[ -n ${expr// } ]] || exit 0
+    [[ -n $ans ]] && expr=$(sed -E "s/\bans\b/($ans)/g" <<<"$expr")
+    res=$(calc "$expr")
+    [[ -n $res ]] || { mesg="<span foreground='#e0485a'>Pas de résultat pour : $expr</span>"; continue; }
+    ans=$res
+    clip_set "$res"
+    hist=("$expr = $res" "${hist[@]}")
+    safe=$(sed 's/&/\&amp;/g; s/</\&lt;/g' <<<"$res")
+    mesg="<b>$safe</b>   · copié"
+done
