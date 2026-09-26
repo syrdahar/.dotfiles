@@ -7,6 +7,7 @@
 # ──────────────────────────────────────────────────────────────
 set -euo pipefail
 DIR=$(dirname "$(readlink -f "$0")")
+lang=$(cat "${XDG_STATE_HOME:-$HOME/.local/state}/desk/lang" 2>/dev/null || echo en)
 
 if [[ $# -eq 0 || $1 == -h || $1 == --help ]]; then
     echo "usage: desk <module> [args…]"
@@ -17,8 +18,9 @@ fi
 
 mod=$1; shift
 if [[ ! -x $DIR/desk-$mod ]]; then
-    notify-send -a desk -u critical -i dialog-error-symbolic "desk" "Module inconnu : $mod" 2>/dev/null || true
-    echo "desk: module inconnu : $mod" >&2
+    [[ $lang == fr ]] && msg="Module inconnu : $mod" || msg="Unknown module: $mod"
+    notify-send -a desk -u critical -i dialog-error-symbolic "desk" "$msg" 2>/dev/null || true
+    echo "desk: $msg" >&2
     exit 1
 fi
 exec "$DIR/desk-$mod" "$@"

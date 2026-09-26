@@ -13,7 +13,9 @@ action() { printf '%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "${4:-}"; }
 actions=$(source "$DESK_DIR/actions.sh")
 binds=$(hyprctl binds -j)
 
-# une ligne affichée par action : "libellé ……… raccourci(s)"
+# une ligne affichée par action : "libellé ……… raccourci(s) ‖ mots-clés cachés"
+# (libellé dans la langue courante ; l'autre langue + la description d'origine du bind
+#  restent cherchables)
 list=$(jq -rR --argjson all "$binds" "$DESK_JQ"'
     split("\t") as [$label, $kind, $target, $keysfrom]
     | [ $all[]
@@ -23,13 +25,14 @@ list=$(jq -rR --argjson all "$binds" "$DESK_JQ"'
             else .dispatcher == "exec" and (.arg | norm) == ($target | norm) end)
         | select(.submap == "" or .modmask == 0 or .has_description)   # pas les variantes SUPER du leader
         | fullcombo($all) ] | unique_by(.) as $keys
-    | "\($label)\t\($keys | join("  ·  "))"
-' <<<"$actions" | awk -F'\t' '{ printf "%-48s %s\n", $1, $2 }')
+    | [($label | bi_other), (if $kind == "bind" then $target else "" end)] | map(select(. != "")) | join(" ") as $meta
+    | "\($label | bi)\t\($keys | join("  ·  "))\t\($meta)"
+' <<<"$actions" | awk -F'\t' '{ printf "%-48s %s%s\n", $1, $2, ($3 != "" ? " ‖ " $3 : "") }')
 
-[[ ${1:-} == --print ]] && { echo "$list"; exit 0; }
+[[ ${1:-} == --print ]] && { sed 's/ ‖ .*//' <<<"$list"; exit 0; }
 
 idx=$(menu "󰘳  palette" -format i -matching fuzzy \
-        -mesg "Tape une action ou un raccourci · Entrée exécute" <<<"$list") || exit 0
+        -mesg "$(t "Tape une action (FR ou EN) ou un raccourci · Entrée exécute" "Type an action (EN or FR) or a shortcut · Enter runs it")" <<<"$list") || exit 0
 [[ -n $idx ]] || exit 0
 
 IFS=$'\t' read -r label kind target _ < <(sed -n "$((idx + 1))p" <<<"$actions")
@@ -37,9 +40,10 @@ case $kind in
     bind)
         read -r dispatcher arg < <(jq -r --arg d "$target" \
             'first(.[] | select(.description == $d)) | "\(.dispatcher) \(.arg)"' <<<"$binds")
-        [[ -n ${dispatcher:-} ]] || die "Bind introuvable : $target"
+        [[ -n ${dispatcher:-} ]] || die "$(t "Bind introuvable" "Bind not found") : $target"
         hyprctl dispatch "$dispatcher" "$arg" >/dev/null ;;
     cmd)
-        setsid -f bash -c "$target" >/dev/null 2>&1 ;;
-    *)  die "Type d'action inconnu pour « $label » : $kind" ;;
+        # desk_t "fr" "en" : texte selon la langue, utilisable dans les commandes d'actions.sh
+        setsid -f bash -c 'desk_t() { if [[ $DESK_LANG == fr ]]; then printf %s "$1"; else printf %s "$2"; fi; }; '"$target" >/dev/null 2>&1 ;;
+    *)  die "$(t "Type d'action inconnu" "Unknown action type") « $label » : $kind" ;;
 esac

@@ -1,0 +1,162 @@
+#!/usr/bin/env bash
+# ──────────────────────────────────────────────────────────────
+#  desk capture — captures d'écran, annotation, OCR, enregistrement, pipette
+#   desk capture               menu (⏹ en tête si un enregistrement tourne)
+#   desk capture run <id>      action directe (voir --list)
+#   desk capture --list        actions pour la palette
+#
+#  Tes captures hyprshot existantes (Impr, SUPER+U…) sont reprises telles quelles :
+#  le menu déclenche ces binds. Nouveau :
+#   - fenêtre active → presse-papier ;
+#   - annotation (satty) d'une zone → presse-papier + ~/Images/Captures ;
+#   - OCR d'une zone (tesseract fra+eng) → presse-papier ;
+#   - enregistrement zone / écran (wf-recorder) en bascule start/stop, option GIF
+#     → ~/Vidéos/Enregistrements, chemin copié (collable comme fichier).
+# ──────────────────────────────────────────────────────────────
+source "$(dirname "$(readlink -f "$0")")/lib.sh"
+DESK_NAME=capture
+SHOTS=${DESK_SHOTS_DIR:-$HOME/Images/Captures}
+VIDEOS=${DESK_VIDEOS_DIR:-$HOME/Vidéos/Enregistrements}
+REC=$DESK_RUN/rec          # rec.pid · rec.file · rec.mode · rec.nid
+mkdir -p "$SHOTS" "$VIDEOS"
+
+ACTIONS=(
+    "region-clip|Capture · Zone → presse-papier ‖ Screenshot · Region → clipboard"
+    "window-clip|Capture · Fenêtre active → presse-papier ‖ Screenshot · Active window → clipboard"
+    "screen-clip|Capture · Écran → presse-papier ‖ Screenshot · Screen → clipboard"
+    "annotate|Capture · Annoter une zone (satty) ‖ Screenshot · Annotate a region (satty)"
+    "ocr|Capture · OCR : texte d'une zone → presse-papier ‖ Screenshot · OCR: text from region → clipboard"
+    "record-region|Capture · Enregistrer une zone (vidéo) ‖ Screen recording · Record a region (video)"
+    "record-screen|Capture · Enregistrer l'écran (vidéo) ‖ Screen recording · Record the screen (video)"
+    "record-gif|Capture · Enregistrer une zone en GIF ‖ Screen recording · Record a region as GIF"
+    "region-file|Capture · Zone → fichier ‖ Screenshot · Region → file"
+    "window-file|Capture · Fenêtre (au clic) → fichier ‖ Screenshot · Window (click) → file"
+    "screen-file|Capture · Écran entier → fichier ‖ Screenshot · Full screen → file"
+    "picker|Couleur · Pipette (hexa copié) ‖ Color · Color picker (hex copied)"
+    "folder|Capture · Ouvrir le dossier des captures ‖ Screenshot · Open screenshots folder"
+)
+
+recording() { [[ -f $REC.pid ]] && kill -0 "$(<"$REC.pid")" 2>/dev/null; }
+
+# laisse le temps au menu rofi de disparaître (animation de fermeture)
+settle() { sleep 0.35; }
+
+select_region() { slurp -d 2>/dev/null || exit 0; }   # Échap pendant la sélection = annuler
+
+shot_notify() {   # shot_notify "titre" fichier
+    notify -u low -i "$2" "$1" "$(tilde "$2")"
+}
+
+# ── Captures existantes (hyprshot) : on déclenche tes binds ──
+a_region_clip() { settle; run_bind "Capture · Zone → presse-papier (chadwm)"; }
+a_screen_clip() { settle; run_bind "Capture · Écran → presse-papier (chadwm)"; }
+a_region_file() { settle; run_bind "Capture · Zone (fichier)"; }
+a_window_file() { settle; run_bind "Capture · Fenêtre (fichier)"; }
+a_screen_file() { settle; run_bind "Capture · Écran entier (fichier)"; }
+a_picker()      { settle; run_bind "Apps · Pipette de couleur"; }
+
+# ── Nouveau ──────────────────────────────────────────────────
+a_window_clip() {
+    local geo f
+    geo=$(hyprctl activewindow -j | jq -r 'if .at then "\(.at[0]),\(.at[1]) \(.size[0])x\(.size[1])" else empty end')
+    [[ -n $geo ]] || die "$(t "Aucune fenêtre active" "No active window")"
+    settle
+    f="$DESK_RUN/window.png"
+    grim -g "$geo" "$f"
+    wl-copy -t image/png <"$f" >/dev/null 2>&1
+    notify -u low -i "$f" "$(t "Fenêtre copiée" "Window copied")" "$(hyprctl activewindow -j | jq -r .title)"
+}
+
+a_annotate() {
+    command -v satty >/dev/null || die "$(t "satty n'est pas installé" "satty is not installed")"
+    settle
+    local geo; geo=$(select_region)
+    grim -g "$geo" - | satty --filename - \
+        --output-filename "$SHOTS/annot-%Y%m%d-%H%M%S.png" \
+        --copy-command wl-copy --early-exit \
+        --actions-on-enter save-to-clipboard,save-to-file \
+        --initial-tool arrow >/dev/null 2>&1 &
+    disown
+}
+
+a_ocr() {
+    command -v tesseract >/dev/null || die "$(t "tesseract n'est pas installé" "tesseract is not installed")"
+    settle
+    local geo txt; geo=$(select_region)
+    notify -u low -i edit-find-symbolic "OCR…" "$(t "Reconnaissance du texte (fra + eng)" "Recognizing text (fra + eng)")"
+    # agrandi ×2 en niveaux de gris : bien meilleur sur le texte d'écran
+    txt=$(grim -g "$geo" - | magick - -colorspace gray -resize 200% png:- |
+          tesseract stdin stdout -l fra+eng 2>/dev/null | sed -e 's/\f//g' -e 's/[[:space:]]*$//' |
+          python3 -c 'import sys; print(sys.stdin.read().strip(), end="")')
+    [[ -n $txt ]] || die "$(t "Aucun texte reconnu dans la zone" "No text recognized in the region")"
+    clip_set "$txt"
+    notify -u low -i edit-copy-symbolic "$(t "Texte copié (OCR)" "Text copied (OCR)")" "$(head -c 300 <<<"$txt")"
+}
+
+a_folder() { setsid -f xdg-open "$SHOTS" >/dev/null 2>&1; }
+
+# ── Enregistrement ───────────────────────────────────────────
+record_start() {   # record_start region|screen  mp4|gif
+    command -v wf-recorder >/dev/null || die "$(t "wf-recorder n'est pas installé" "wf-recorder is not installed")"
+    recording && { record_stop; return; }
+    local what=$1 mode=$2 geo="" out file
+    settle
+    if [[ $what == region ]]; then geo=$(select_region)
+    else out=$(hyprctl monitors -j | jq -r '.[] | select(.focused) | .name'); fi
+    file="$VIDEOS/rec-$(date +%Y%m%d-%H%M%S).mp4"
+    if [[ -n $geo ]]; then setsid -f wf-recorder -g "$geo" -f "$file" >"$DESK_RUN/rec.log" 2>&1
+    else setsid -f wf-recorder -o "$out" -f "$file" >"$DESK_RUN/rec.log" 2>&1; fi
+    sleep 0.5
+    local pid; pid=$(pgrep -n -x wf-recorder) || die "$(t "wf-recorder n'a pas démarré" "wf-recorder did not start") : $(tail -n2 "$DESK_RUN/rec.log")"
+    echo "$pid" >"$REC.pid"; echo "$file" >"$REC.file"; echo "$mode" >"$REC.mode"
+    notify-send -a desk -p -u critical -i media-record-symbolic \
+        -h string:x-canonical-private-synchronous:desk-rec \
+        "● $(t "Enregistrement" "Recording")$([[ $mode == gif ]] && echo " (GIF)")" \
+        "$(t "SUPER+Espace puis r (ou la palette) pour arrêter" "SUPER+Space then r (or the palette) to stop")" >"$REC.nid" 2>/dev/null || true
+}
+
+record_stop() {
+    local pid file mode nid i
+    pid=$(<"$REC.pid"); file=$(<"$REC.file"); mode=$(<"$REC.mode"); nid=$(cat "$REC.nid" 2>/dev/null || true)
+    kill -INT "$pid" 2>/dev/null || true
+    for (( i = 0; i < 50; i++ )); do kill -0 "$pid" 2>/dev/null || break; sleep 0.1; done
+    rm -f "$REC.pid" "$REC.mode" "$REC.nid"
+    [[ -n $nid ]] && gdbus call --session --dest org.freedesktop.Notifications --object-path /org/freedesktop/Notifications \
+        --method org.freedesktop.Notifications.CloseNotification "$nid" >/dev/null 2>&1 || true
+    [[ -s $file ]] || die "$(t "Enregistrement vide ou échoué" "Recording empty or failed") : $(tail -n2 "$DESK_RUN/rec.log" 2>/dev/null)"
+    if [[ $mode == gif ]]; then
+        notify -u low -i media-playback-stop-symbolic "$(t "Conversion en GIF…" "Converting to GIF…")"
+        local gif=${file%.mp4}.gif
+        ffmpeg -loglevel error -y -i "$file" \
+            -vf "fps=15,scale='min(960,iw)':-2:flags=lanczos,split[a][b];[a]palettegen=stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=4" \
+            "$gif" || die "$(t "Échec de la conversion GIF" "GIF conversion failed")"
+        rm -f "$file"; file=$gif
+    fi
+    # chemin copié en text/uri-list : collable comme fichier (navigateur, gestionnaire de fichiers, chats…)
+    printf 'file://%s\n' "$file" | wl-copy -t text/uri-list >/dev/null 2>&1
+    local size; size=$(du -h "$file" | cut -f1)
+    setsid -f bash -c '
+        a=$(notify-send -a desk -i video-x-generic -A open="$3" -A folder="$4" "$1" "$2")
+        case $a in open) xdg-open "$5" ;; folder) xdg-open "$(dirname "$5")" ;; esac
+    ' _ "$(t "Enregistrement terminé" "Recording saved") · $size" "$(tilde "$file") · $(t "fichier copié" "file copied")" \
+        "$(t Ouvrir Open)" "$(t Dossier Folder)" "$file" >/dev/null 2>&1
+}
+
+a_record_region() { record_start region mp4; }
+a_record_screen() { record_start screen mp4; }
+a_record_gif()    { record_start region gif; }
+a_record_stop()   { recording && record_stop || notify -u low "$(t "Aucun enregistrement en cours" "No recording in progress")"; }
+
+menu_main() {
+    if recording; then
+        ACTIONS=("record-stop|⏹ Arrêter l'enregistrement ‖ ⏹ Stop recording" "${ACTIONS[@]}")
+    fi
+    menu_actions "󰄀  capture" "$(t "Captures : $(tilde "$SHOTS") · vidéos : $(tilde "$VIDEOS")" "Screenshots: $(tilde "$SHOTS") · videos: $(tilde "$VIDEOS")")"
+}
+
+case "${1:-}" in
+    "")     menu_main ;;
+    run)    shift; run_action "$@" ;;
+    --list) list_actions; printf '%s\t%s\n' record-stop "Capture · Arrêter l'enregistrement ‖ Screen recording · Stop recording" ;;
+    *)      sed -n '3,6p' "$0" | sed 's/^#  \{0,1\}//'; exit 1 ;;
+esac

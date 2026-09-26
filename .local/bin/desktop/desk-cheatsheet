@@ -15,34 +15,40 @@ DESK_NAME=cheatsheet
 
 binds=$(hyprctl binds -j)
 
-# tableau trié : [ {cat, keys, desc, dispatcher, arg} ]
-rows=$(jq -c --argjson all "$binds" "$DESK_JQ"'
+# tableau trié : [ {cat, keys, desc, meta, dispatcher, arg} ]
+# description « fr ‖ en » : affichée dans la langue courante, l'autre langue devient
+# un mot-clé caché (recherche FR + EN) ; tes descriptions d'origine restent telles quelles.
+rows=$(jq -c --argjson all "$binds" --arg misc "$(t Divers Misc)" --arg nodesc "$(t "Sans description" "No description")" "$DESK_JQ"'
     [ .[]
       # leader : les variantes "SUPER encore enfoncé", les modificateurs seuls
       # et le catchall sont volontairement sans description → masqués
       | select(.submap != "leader" or .has_description)
-      | (if .has_description then (.description | split(" · ")) else [] end) as $d
-      | { cat:  (if ($d | length) > 1 then $d[0] elif .has_description then "Divers" else "Sans description" end),
-          desc: (if ($d | length) > 1 then ($d[1:] | join(" · ")) elif .has_description then .description
+      | (if .has_description then (.description | bi) else "" end) as $cur
+      | (if .has_description then (.description | bi_other) else "" end) as $oth
+      | ($cur | split(" · ")) as $d
+      | { cat:  (if ($d | length) > 1 then $d[0] elif .has_description then $misc else $nodesc end),
+          desc: (if ($d | length) > 1 then ($d[1:] | join(" · ")) elif .has_description then $cur
                  else "\(.dispatcher) \(.arg)" end),
+          meta: $oth,
           keys: fullcombo($all),
           dispatcher, arg } ]
     | sort_by(.cat | ascii_downcase)
 ' <<<"$binds")
 
-list=$(jq -r '.[] | "\(.cat)\t\(.keys)\t\(.desc)"' <<<"$rows" |
-       awk -F'\t' '{ printf "%-13s %-24s %s\n", $1, $2, $3 }')
+list=$(jq -r '.[] | "\(.cat)\t\(.keys)\t\(.desc)\t\(.meta)"' <<<"$rows" |
+       awk -F'\t' '{ printf "%-13s %-24s %s%s\n", $1, $2, $3, ($4 != "" ? " ‖ " $4 : "") }')
 
-[[ ${1:-} == --print ]] && { echo "$list"; exit 0; }
+[[ ${1:-} == --print ]] && { sed 's/ ‖ .*//' <<<"$list"; exit 0; }
 
 n=$(jq length <<<"$rows")
-idx=$(menu "󰌌  raccourcis" -format i -matching normal \
-        -mesg "$n raccourcis · tape une catégorie, une action ou des touches · Entrée exécute · dans le leader, SUPER peut rester enfoncé" \
+idx=$(menu "󰌌  $(t raccourcis shortcuts)" -format i -matching normal \
+        -mesg "$(t "$n raccourcis · tape une catégorie, une action ou des touches (FR ou EN) · Entrée exécute · dans le leader, SUPER peut rester enfoncé" \
+                  "$n shortcuts · type a category, an action or keys (EN or FR) · Enter runs it · in the leader, SUPER may stay pressed")" \
         <<<"$list") || exit 0
 [[ -n $idx ]] || exit 0
 
 read -r dispatcher arg < <(jq -r --argjson i "$idx" '.[$i] | "\(.dispatcher) \(.arg)"' <<<"$rows")
 case $dispatcher in
-    mouse|movewindow|resizewindow) notify -u low "Raccourci souris" "À faire avec la souris : $(jq -r --argjson i "$idx" '.[$i].keys' <<<"$rows")" ;;
+    mouse|movewindow|resizewindow) notify -u low "$(t "Raccourci souris" "Mouse shortcut")" "$(t "À faire avec la souris" "Use the mouse"): $(jq -r --argjson i "$idx" '.[$i].keys' <<<"$rows")" ;;
     *) hyprctl dispatch "$dispatcher" "$arg" >/dev/null ;;
 esac

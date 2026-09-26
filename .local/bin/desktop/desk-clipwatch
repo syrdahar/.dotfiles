@@ -24,19 +24,23 @@ schedule_clear() {   # vide le presse-papier plus tard, seulement s'il n'a pas c
         sleep "$1"
         [[ $(wl-paste --no-newline 2>/dev/null | sha256sum | cut -d" " -f1) == "$2" ]] || exit 0
         touch "$3"; wl-copy --clear
-        notify-send -a desk -u low -i edit-clear-symbolic "Presse-papier vidé" "Contenu sensible effacé"
-    ' _ "$CLEAR_AFTER" "$sum" "$OWN_CLEAR" >/dev/null 2>&1
+        notify-send -a desk -u low -i edit-clear-symbolic "$4" "$5"
+    ' _ "$CLEAR_AFTER" "$sum" "$OWN_CLEAR" "$(t "Presse-papier vidé" "Clipboard cleared")" "$(t "Contenu sensible effacé" "Sensitive content removed")" >/dev/null 2>&1
 }
 
 if [[ ${1:-} == --test ]]; then
-    is_sensitive && echo "sensible : ne serait pas stocké" || echo "normal : serait stocké"
+    is_sensitive && t "sensible : ne serait pas stocké" "sensitive: would not be stored" || t "normal : serait stocké" "normal: would be stored"; echo
     exit 0
 fi
 
 case ${CLIPBOARD_STATE:-data} in
     clear)
         # notre propre effacement : cliphist supprimerait sa dernière entrée (légitime)
-        [[ -e $OWN_CLEAR ]] && { rm -f "$OWN_CLEAR"; exit 0; }
+        # (marqueur valable 5 s : s'il n'a pas été consommé, il ne doit pas masquer un vrai « clear »)
+        if [[ -e $OWN_CLEAR ]]; then
+            age=$(( $(date +%s) - $(stat -c %Y "$OWN_CLEAR") )); rm -f "$OWN_CLEAR"
+            (( age < 5 )) && exit 0
+        fi
         exec cliphist store ;;
     sensitive)
         schedule_clear "$(wl-paste --no-newline 2>/dev/null | sha256sum | cut -d' ' -f1)"
@@ -50,8 +54,8 @@ cat >"$tmp"
 
 if head -c 1000000 "$tmp" | is_sensitive; then
     schedule_clear "$(sha256sum <"$tmp" | cut -d' ' -f1)"
-    notify -u low -i security-high-symbolic "Contenu sensible détecté" \
-        "Non enregistré dans l'historique · effacé du presse-papier dans ${CLEAR_AFTER} s"
+    notify -u low -i security-high-symbolic "$(t "Contenu sensible détecté" "Sensitive content detected")" \
+        "$(t "Non enregistré dans l'historique · effacé du presse-papier dans ${CLEAR_AFTER} s" "Not saved to history · cleared from clipboard in ${CLEAR_AFTER} s")"
     exit 0
 fi
 

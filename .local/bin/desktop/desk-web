@@ -21,8 +21,8 @@ declare -A ENGINE=(
     [yt]='https://www.youtube.com/results?search_query=%s'
 )
 declare -A LABEL=(
-    [gh]='GitHub (dépôts)' [ghc]='GitHub (code)' [mdn]='MDN' [npm]='npm' [aur]='AUR'
-    [pac]='Paquets Arch' [aw]='Wiki Arch' [so]='Stack Overflow' [yt]='YouTube'
+    [gh]='GitHub (dépôts) ‖ GitHub (repositories)' [ghc]='GitHub (code)' [mdn]='MDN' [npm]='npm' [aur]='AUR'
+    [pac]='Paquets Arch ‖ Arch packages' [aw]='Wiki Arch ‖ Arch wiki' [so]='Stack Overflow' [yt]='YouTube'
 )
 ORDER=(gh ghc mdn npm so aur pac aw yt)
 
@@ -31,12 +31,12 @@ search() {
     if [[ $q == *" "* && -n ${ENGINE[$pre]:-} ]]; then url=${ENGINE[$pre]}; q=${q#* }
     else url=${DESK_SEARCH_DEFAULT:-https://www.google.com/search?q=%s}; pre=""; fi
     open_url "${url//%s/$(urlencode "$q")}"
-    notify -u low -i system-search-symbolic "Recherche${pre:+ · ${LABEL[$pre]:-web}}" "$q"
+    notify -u low -i system-search-symbolic "$(t Recherche Search)${pre:+ · $(bi "${LABEL[$pre]:-web}")}" "$q"
 }
 
 if (( $# )); then search "$*"; exit 0; fi
 
-hints=$(for k in "${ORDER[@]}"; do printf '%-4s %s\n' "$k" "${LABEL[$k]}"; done)
-q=$(menu "󰖟  web" -format f -mesg "Préfixe + requête (ex. « npm zod ») · sans préfixe : Google · vide : presse-papier" <<<"$hints") || exit 0
+hints=$(for k in "${ORDER[@]}"; do printf '%-4s %s\n' "$k" "$(bi "${LABEL[$k]}")"; done)
+q=$(menu "󰖟  web" -format f -mesg "$(t "Préfixe + requête (ex. « npm zod ») · sans préfixe : Google · vide : presse-papier" "Prefix + query (e.g. “npm zod”) · no prefix: Google · empty: clipboard")" <<<"$hints") || exit 0
 if [[ -z ${q// } ]]; then q=$(clip_get | head -c 300 | tr '\n' ' '); [[ -n ${q// } ]] || exit 0; fi
 search "$q"

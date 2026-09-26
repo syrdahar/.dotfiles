@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# ──────────────────────────────────────────────────────────────
+#  desk lang — langue d'affichage du command center
+#   desk lang            affiche la langue courante (fr | en)
+#   desk lang toggle     bascule français ↔ anglais
+#   desk lang fr|en      choisit la langue
+#  La recherche dans les menus rofi marche toujours dans les deux langues.
+#  Défaut : DESK_LANG dans ~/.config/desktop/desk.conf ; choix mémorisé
+#  dans ~/.local/state/desk/lang.
+# ──────────────────────────────────────────────────────────────
+source "$(dirname "$(readlink -f "$0")")/lib.sh"
+DESK_NAME=lang
+
+set_lang() {
+    echo "$1" >"$DESK_STATE/lang"
+    DESK_LANG=$1
+    notify -u low -i preferences-desktop-locale-symbolic "$(t "Langue : français" "Language: English")" \
+        "$(t "La recherche reste possible en anglais" "You can still search in French")"
+}
+
+case "${1:-}" in
+    "")     echo "$DESK_LANG" ;;
+    toggle) [[ $DESK_LANG == fr ]] && set_lang en || set_lang fr ;;
+    fr|en)  set_lang "$1" ;;
+    *)      sed -n '3,6p' "$0" | sed 's/^#  \{0,1\}//'; exit 1 ;;
+esac

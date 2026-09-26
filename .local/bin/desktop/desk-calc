@@ -13,17 +13,18 @@ calc() { qalc -t -- "$1" 2>&1 | tail -n1; }
 
 if (( $# )); then calc "$*"; exit 0; fi
 
-hist=() ans="" mesg="Tape un calcul ou une conversion · Entrée : résultat copié · « ans » = précédent"
+hist=() ans="" mesg=$(t "Tape un calcul ou une conversion · Entrée : résultat copié · « ans » = précédent" \
+                        "Type a calculation or conversion · Enter: result copied · “ans” = previous result")
 while :; do
     # -format f : on récupère toujours ce qui est tapé (pas la ligne d'historique surlignée)
-    expr=$(printf '%s\n' "${hist[@]}" | menu "󰃬  calcul" -format f -mesg "$mesg") || exit 0
+    expr=$(printf '%s\n' "${hist[@]}" | menu "󰃬  $(t calcul calc)" -format f -mesg "$mesg") || exit 0
     [[ -n ${expr// } ]] || exit 0
     [[ -n $ans ]] && expr=$(sed -E "s/\bans\b/($ans)/g" <<<"$expr")
     res=$(calc "$expr")
-    [[ -n $res ]] || { mesg="<span foreground='#e0485a'>Pas de résultat pour : $expr</span>"; continue; }
+    [[ -n $res ]] || { mesg="<span foreground='#e0485a'>$(t "Pas de résultat pour" "No result for") : $expr</span>"; continue; }
     ans=$res
     clip_set "$res"
     hist=("$expr = $res" "${hist[@]}")
     safe=$(sed 's/&/\&amp;/g; s/</\&lt;/g' <<<"$res")
-    mesg="<b>$safe</b>   · copié"
+    mesg="<b>$safe</b>   · $(t copié copied)"
 done

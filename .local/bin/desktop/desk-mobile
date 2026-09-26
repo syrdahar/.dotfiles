@@ -12,56 +12,56 @@ EMULATOR=${ANDROID_HOME:-$HOME/Android/Sdk}/emulator/emulator
 ADB=$(command -v adb || echo "${ANDROID_HOME:-$HOME/Android/Sdk}/platform-tools/adb")
 
 ACTIONS=(
-    "scrcpy|Mobile · Miroir du téléphone (scrcpy)"
-    "emulator|Mobile · Lancer un émulateur Android"
-    "reverse|Mobile · adb reverse tcp:8081 (Metro / Expo)"
-    "devmenu|Mobile · Menu développeur React Native"
-    "devices|Mobile · Appareils connectés (adb)"
-    "kill-dev|Mobile · Tuer Metro / Expo / node…"
+    "scrcpy|Mobile · Miroir du téléphone (scrcpy) ‖ Mobile · Mirror phone screen (scrcpy)"
+    "emulator|Mobile · Lancer un émulateur Android ‖ Mobile · Start an Android emulator"
+    "reverse|Mobile · adb reverse tcp:8081 (Metro / Expo) ‖ Mobile · adb reverse tcp:8081 (Metro / Expo)"
+    "devmenu|Mobile · Menu développeur React Native ‖ Mobile · React Native dev menu"
+    "devices|Mobile · Appareils connectés (adb) ‖ Mobile · Connected devices (adb)"
+    "kill-dev|Mobile · Tuer Metro / Expo / node… ‖ Mobile · Kill Metro / Expo / node…"
 )
 
 devices() { "$ADB" devices -l 2>/dev/null | awk 'NR > 1 && $2 == "device" { m = ""; for (i = 3; i <= NF; i++) if ($i ~ /^model:/) m = substr($i, 7); print $1 "\t" m }'; }
 
 pick_device() {   # un seul appareil → direct ; plusieurs → rofi
     local d; d=$(devices)
-    [[ -n $d ]] || die "Aucun appareil adb (USB + débogage activé, ou émulateur lancé)"
+    [[ -n $d ]] || die "$(t "Aucun appareil adb (USB + débogage activé, ou émulateur lancé)" "No adb device (USB with debugging enabled, or a running emulator)")"
     if (( $(wc -l <<<"$d") > 1 )); then
-        d=$(awk -F'\t' '{ printf "%-24s %s\n", $1, $2 }' <<<"$d" | menu "󰄜  appareil") || exit 0
+        d=$(awk -F'\t' '{ printf "%-24s %s\n", $1, $2 }' <<<"$d" | menu "󰄜  $(t appareil device)") || exit 0
     fi
     awk '{print $1; exit}' <<<"$d"
 }
 
 a_scrcpy() {
-    command -v scrcpy >/dev/null || die "scrcpy n'est pas installé"
+    command -v scrcpy >/dev/null || die "$(t "scrcpy n'est pas installé" "scrcpy is not installed")"
     local s m; s=$(pick_device); m=$(devices | awk -F'\t' -v s="$s" '$1 == s { print $2 }')
     setsid -f scrcpy -s "$s" --stay-awake --window-title "scrcpy · ${m:-$s}" >/dev/null 2>&1
     notify -u low -i phone-symbolic "scrcpy" "${m:-$s}"
 }
 a_emulator() {
-    [[ -x $EMULATOR ]] || die "Émulateur introuvable : $EMULATOR"
+    [[ -x $EMULATOR ]] || die "$(t "Émulateur introuvable" "Emulator not found") : $EMULATOR"
     local avd=${1:-}
     if [[ -z $avd ]]; then
         local avds; avds=$("$EMULATOR" -list-avds 2>/dev/null | grep -v '^INFO' || true)
-        [[ -n $avds ]] || die "Aucun AVD : crée-en un (Android Studio ou avdmanager create avd)"
-        avd=$(menu "󰄜  émulateur" <<<"$avds") || exit 0
+        [[ -n $avds ]] || die "$(t "Aucun AVD : crée-en un (Android Studio ou avdmanager create avd)" "No AVD: create one (Android Studio or avdmanager create avd)")"
+        avd=$(menu "󰄜  $(t émulateur emulator)" <<<"$avds") || exit 0
     fi
     setsid -f "$EMULATOR" -avd "$avd" >/dev/null 2>&1
-    notify -u low -i phone-symbolic "Émulateur" "$avd · démarrage…"
+    notify -u low -i phone-symbolic "$(t Émulateur Emulator)" "$avd · $(t démarrage… starting…)"
 }
 a_reverse() {
     local s out; s=$(pick_device)
     out=$("$ADB" -s "$s" reverse tcp:8081 tcp:8081 2>&1) || die "$out"
     notify -u low -i emblem-ok-symbolic "adb reverse" "tcp:8081 → $s"
 }
-a_devmenu() { local s; s=$(pick_device); "$ADB" -s "$s" shell input keyevent 82 && notify -u low -i phone-symbolic "Menu dev RN" "$s"; }
+a_devmenu() { local s; s=$(pick_device); "$ADB" -s "$s" shell input keyevent 82 && notify -u low -i phone-symbolic "$(t "Menu dev RN" "RN dev menu")" "$s"; }
 a_devices() {
     local d; d=$("$ADB" devices -l 2>&1 | tail -n +2 | grep . || true)
-    notify -i phone-symbolic "Appareils adb" "${d:-aucun}"
+    notify -i phone-symbolic "$(t "Appareils adb" "adb devices")" "${d:-$(t aucun none)}"
 }
 a_kill_dev() { exec "$DESK_DIR/desk" ports run kill-dev; }
 
 case "${1:-}" in
-    "")     menu_actions "󰄜  mobile" "Appareils : $(devices | awk -F'\t' '{ printf "%s ", ($2 != "" ? $2 : $1) }')$( [[ -z $(devices) ]] && echo aucun)" ;;
+    "")     menu_actions "󰄜  mobile" "$(t Appareils Devices) : $(devices | awk -F'\t' '{ printf "%s ", ($2 != "" ? $2 : $1) }')$( [[ -z $(devices) ]] && t aucun none)" ;;
     run)    shift; run_action "$@" ;;
     --list) list_actions ;;
     *)      sed -n '3,6p' "$0" | sed 's/^#  \{0,1\}//'; exit 1 ;;

@@ -20,10 +20,10 @@ PCONF=$DESK_CONF/projects.d
 HIST=$DESK_STATE/projects.hist
 
 ACTIONS=(
-    "pick|Projet · Ouvrir / rejoindre un projet"
-    "close|Projet · Fermer un projet (session tmux + fenêtres)"
-    "config|Projet · Configurer le projet courant (commandes, URL, mobile)"
-    "roots|Projet · Modifier les dossiers racines"
+    "pick|Projet · Ouvrir / rejoindre un projet ‖ Project · Open / switch to a project"
+    "close|Projet · Fermer un projet (session tmux + fenêtres) ‖ Project · Close a project (tmux session + windows)"
+    "config|Projet · Configurer le projet courant (commandes, URL, mobile) ‖ Project · Configure current project (commands, URL, mobile)"
+    "roots|Projet · Modifier les dossiers racines ‖ Project · Edit project root folders"
 )
 
 roots() { sed -e 's/#.*//' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' "$ROOTS" | grep . | sed "s#^~#$HOME#"; }
@@ -52,9 +52,9 @@ ws_windows() { hyprctl clients -j | jq --arg w "name:$1" '[.[] | select(.workspa
 
 open_project() {
     local dir=${1%/} name
-    [[ -d $dir ]] || die "Dossier introuvable : $dir"
+    [[ -d $dir ]] || die "$(t "Dossier introuvable" "Folder not found") : $dir"
     name=$(session_name "$dir")
-    [[ -n $name ]] || die "Nom de projet vide pour $dir"
+    [[ -n $name ]] || die "$(t "Nom de projet vide pour" "Empty project name for") $dir"
     { echo "$dir"; grep -vxF "$dir" "$HIST" 2>/dev/null | head -50; } >"$HIST.tmp" && mv "$HIST.tmp" "$HIST"
 
     if (( $(ws_windows "$name") > 0 )); then     # déjà ouvert : on y va
@@ -90,46 +90,46 @@ open_project() {
         scrcpy)     "$DESK_DIR/desk" mobile run scrcpy || true ;;
         emulator:*) "$DESK_DIR/desk" mobile run emulator "${mobile#emulator:}" || true ;;
     esac
-    local extra=""; (( ${#cmds[@]} )) && extra=" · ${#cmds[@]} commande(s) lancée(s) dans tmux"
-    notify -u low -i folder-open-symbolic "Projet $name" "$(tilde "$dir")$extra"
+    local extra=""; (( ${#cmds[@]} )) && extra=" · ${#cmds[@]} $(t "commande(s) lancée(s) dans tmux" "command(s) started in tmux")"
+    notify -u low -i folder-open-symbolic "$(t Projet Project) $name" "$(tilde "$dir")$extra"
 }
 
 a_pick() {
     local -a all=(); local d
     mapfile -t all < <( { grep -vxF '' "$HIST" 2>/dev/null | while read -r d; do [[ -d $d ]] && echo "$d"; done; scan; } | awk '!seen[$0]++')
-    (( ${#all[@]} )) || die "Aucun dépôt git trouvé sous les racines de $ROOTS"
+    (( ${#all[@]} )) || die "$(t "Aucun dépôt git trouvé sous les racines de" "No git repository found under the roots in") $ROOTS"
     local open; open=$(tmux list-sessions -F '#{session_path}' 2>/dev/null || true)
     local idx
     idx=$(for d in "${all[@]}"; do
             m=" "; grep -qxF "$d" <<<"$open" && m="●"
             printf '%s %-28s %s\n' "$m" "$(basename "$d")" "$(tilde "$(dirname "$d")")"
-          done | menu "󰉋  projet" -format i -mesg "${#all[@]} projets · ● session tmux ouverte · racines : Projet · Modifier les dossiers racines") || exit 0
+          done | menu "󰉋  $(t projet project)" -format i -mesg "$(t "${#all[@]} projets · ● session tmux ouverte · racines : palette → Projet · Modifier les dossiers racines" "${#all[@]} projects · ● tmux session open · roots: palette → Project · Edit project root folders")") || exit 0
     [[ -n $idx ]] && open_project "${all[$idx]}"
 }
 
 a_close() {
     local sessions s
     sessions=$(tmux list-sessions -F '#{session_name}	#{session_path}' 2>/dev/null | grep -v '^scratch	' || true)
-    [[ -n $sessions ]] || die "Aucune session tmux de projet ouverte"
-    s=$(awk -F'\t' '{ printf "%-24s %s\n", $1, $2 }' <<<"$sessions" | sed "s#$HOME#~#" | menu "󰅖  fermer") || exit 0
+    [[ -n $sessions ]] || die "$(t "Aucune session tmux de projet ouverte" "No open project tmux session")"
+    s=$(awk -F'\t' '{ printf "%-24s %s\n", $1, $2 }' <<<"$sessions" | sed "s#$HOME#~#" | menu "󰅖  $(t fermer close)") || exit 0
     s=${s%% *}; [[ -n $s ]] || exit 0
-    confirm "Fermer $s (session tmux et fenêtres du workspace) ?" || exit 0
+    confirm "$(t "Fermer $s (session tmux et fenêtres du workspace) ?" "Close $s (tmux session and workspace windows)?")" || exit 0
     hyprctl clients -j | jq -r --arg w "name:$s" '.[] | select(.workspace.name == $w or .workspace.name == ($w | ltrimstr("name:"))) | .address' |
         while read -r a; do hyprctl dispatch closewindow "address:$a" >/dev/null; done
     tmux kill-session -t "=$s" 2>/dev/null || true
-    notify -u low -i window-close-symbolic "Projet $s fermé"
+    notify -u low -i window-close-symbolic "$(t "Projet $s fermé" "Project $s closed")"
 }
 
 a_config() {
     local dir name f
-    dir=$(git -C "$(active_cwd)" rev-parse --show-toplevel 2>/dev/null) || die "Le terminal actif n'est pas dans un dépôt git"
+    dir=$(git -C "$(active_cwd)" rev-parse --show-toplevel 2>/dev/null) || die "$(t "Le terminal actif n'est pas dans un dépôt git" "The active terminal is not inside a git repository")"
     name=$(session_name "$dir"); f=$PCONF/$name.conf
     mkdir -p "$PCONF"
     [[ -f $f ]] || sed "s/^#  Exemple de config de projet/#  Config du projet $name/" "$PCONF/_exemple.conf" >"$f"
     float_run "config · $name" "$dir" nvim "$f"
 }
 
-a_roots() { float_run "racines des projets" "$DESK_CONF" nvim "$ROOTS"; }
+a_roots() { float_run "$(t "racines des projets" "project roots")" "$DESK_CONF" nvim "$ROOTS"; }
 
 case "${1:-}" in
     "")     a_pick ;;

@@ -18,7 +18,7 @@ toggle() {   # toggle <nom> <classe> <commande> <taille "L% H%" de l'écran>
             sleep 0.1
             hyprctl clients -j | jq -e --arg c "$class" 'any(.[]; .class == $c)' >/dev/null && break
         done
-        (( i < 30 )) || die "La fenêtre $name n'est pas apparue ($cmd)"
+        (( i < 30 )) || die "$(t "La fenêtre $name n'est pas apparue" "Window $name did not appear") ($cmd)"
     elif [[ $ws != "special:$name" ]]; then
         # la fenêtre a été déplacée ailleurs : on la ramène dans son scratchpad
         hyprctl dispatch movetoworkspacesilent "special:$name,class:^($class)\$" >/dev/null

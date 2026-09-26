@@ -28,5 +28,5 @@ connect() {
 if [[ -n ${1:-} ]]; then connect "$1"; exit 0; fi
 
 hosts=$({ cat "$HIST" 2>/dev/null; config_hosts; } | awk 'NF && !seen[$0]++')
-h=$(menu "󰣀  ssh" -mesg "Hôtes de ~/.ssh/config · ou tape user@machine puis Entrée" <<<"$hosts") || exit 0
+h=$(menu "󰣀  ssh" -mesg "$(t "Hôtes de ~/.ssh/config · ou tape user@machine puis Entrée" "Hosts from ~/.ssh/config · or type user@host then Enter")" <<<"$hosts") || exit 0
 [[ -n $h ]] && connect "$h"

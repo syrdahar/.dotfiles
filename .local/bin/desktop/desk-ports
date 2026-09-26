@@ -12,8 +12,8 @@ source "$(dirname "$(readlink -f "$0")")/lib.sh"
 DESK_NAME=ports
 
 ACTIONS=(
-    "ports|Ports · Ports en écoute (ouvrir, curl, tuer…)"
-    "kill-dev|Ports · Tuer node / expo / metro / jest…"
+    "ports|Ports · Ports en écoute (ouvrir, curl, tuer…) ‖ Ports · Listening ports (open, curl, kill…)"
+    "kill-dev|Ports · Tuer node / expo / metro / jest… ‖ Ports · Kill node / expo / metro / jest…"
 )
 DEV_RE='node|expo|metro|jest|vite|next-server|nodemon|react-native|tsx|ts-node|bun|deno'
 
@@ -43,24 +43,27 @@ fmt() { awk -F'\t' -v home="$HOME" '{
 
 a_ports() {
     local rows row port addr proc pid cwd ctr idx act url
-    rows=$(listening); [[ -n $rows ]] || die "Aucun port TCP en écoute"
-    idx=$(fmt <<<"$rows" | menu "󰒍  ports" -format i -mesg "$(wc -l <<<"$rows") ports en écoute · Entrée : actions") || exit 0
+    rows=$(listening); [[ -n $rows ]] || die "$(t "Aucun port TCP en écoute" "No listening TCP port")"
+    idx=$(fmt <<<"$rows" | menu "󰒍  ports" -format i -mesg "$(wc -l <<<"$rows") $(t "ports en écoute · Entrée : actions" "listening ports · Enter: actions")") || exit 0
     [[ -n $idx ]] || exit 0
     IFS=$'\t' read -r port addr proc pid cwd ctr < <(sed -n "$((idx + 1))p" <<<"$rows")
     url="http://localhost:$port"
-    local -a acts=("Ouvrir $url" "curl -i $url" "Copier l'URL")
-    [[ -n $pid ]] && acts+=("Tuer $proc ($pid) · SIGTERM" "Tuer $proc ($pid) · SIGKILL")
-    [[ -n $cwd ]] && acts+=("Terminal dans $(tilde "$cwd")")
-    [[ -n $ctr ]] && acts+=("Conteneur $ctr · actions docker")
-    act=$(printf '%s\n' "${acts[@]}" | menu ":$port" -mesg "$proc${pid:+ · pid $pid}${cwd:+ · $(tilde "$cwd")}${ctr:+ · conteneur $ctr}") || exit 0
-    case $act in
-        Ouvrir*)    open_url "$url" ;;
-        curl*)      float_run "curl :$port" "$HOME" curl -sS -i --max-time 10 "$url" ;;
-        Copier*)    clip_set "$url"; notify -u low -i edit-copy-symbolic "URL copiée" "$url" ;;
-        *SIGTERM)   kill "$pid" && notify -u low -i process-stop-symbolic "Processus arrêté" "$proc ($pid) · port $port" ;;
-        *SIGKILL)   kill -9 "$pid" && notify -u low -i process-stop-symbolic "Processus tué (SIGKILL)" "$proc ($pid) · port $port" ;;
-        Terminal*)  term_run "$proc · $(basename "$cwd")" "$cwd" "${SHELL:-zsh}" ;;
-        Conteneur*) exec "$DESK_DIR/desk" docker container "$ctr" ;;
+    # id|libellé bilingue
+    local -a acts=("open|Ouvrir $url ‖ Open $url" "curl|curl -i $url ‖ curl -i $url" "copy|Copier l'URL ‖ Copy URL")
+    [[ -n $pid ]] && acts+=("term|Tuer $proc ($pid) · SIGTERM ‖ Kill $proc ($pid) · SIGTERM" "kill|Tuer $proc ($pid) · SIGKILL ‖ Kill $proc ($pid) · SIGKILL")
+    [[ -n $cwd ]] && acts+=("shell|Terminal dans $(tilde "$cwd") ‖ Terminal in $(tilde "$cwd")")
+    [[ -n $ctr ]] && acts+=("docker|Conteneur $ctr · actions docker ‖ Container $ctr · docker actions")
+    local i; i=$(for a in "${acts[@]}"; do bi_row "${a#*|}"; done |
+        menu ":$port" -format i -mesg "$proc${pid:+ · pid $pid}${cwd:+ · $(tilde "$cwd")}${ctr:+ · $(t conteneur container) $ctr}") || exit 0
+    [[ -n $i ]] || exit 0
+    case ${acts[$i]%%|*} in
+        open)   open_url "$url" ;;
+        curl)   float_run "curl :$port" "$HOME" curl -sS -i --max-time 10 "$url" ;;
+        copy)   clip_set "$url"; notify -u low -i edit-copy-symbolic "$(t "URL copiée" "URL copied")" "$url" ;;
+        term)   kill "$pid" && notify -u low -i process-stop-symbolic "$(t "Processus arrêté" "Process stopped")" "$proc ($pid) · port $port" ;;
+        kill)   kill -9 "$pid" && notify -u low -i process-stop-symbolic "$(t "Processus tué (SIGKILL)" "Process killed (SIGKILL)")" "$proc ($pid) · port $port" ;;
+        shell)  term_run "$proc · $(basename "$cwd")" "$cwd" "${SHELL:-zsh}" ;;
+        docker) exec "$DESK_DIR/desk" docker container "$ctr" ;;
     esac
 }
 
@@ -70,10 +73,10 @@ a_kill_dev() {
         while read -r pid cmd; do
             printf '%-8s %-60s %s\n' "$pid" "${cmd:0:60}" "$(tilde "$(readlink /proc/"$pid"/cwd 2>/dev/null)")"
         done || true)
-    [[ -n $procs ]] || { notify -u low -i emblem-ok-symbolic "Rien à tuer" "Aucun processus node / expo / metro / jest"; exit 0; }
+    [[ -n $procs ]] || { notify -u low -i emblem-ok-symbolic "$(t "Rien à tuer" "Nothing to kill")" "$(t "Aucun processus node / expo / metro / jest" "No node / expo / metro / jest process")"; exit 0; }
     n=$(wc -l <<<"$procs")
-    sel=$({ echo "⚠  Tout tuer ($n processus)"; echo "$procs"; } |
-          menu "󰅙  tuer" -multi-select -mesg "Shift+Entrée pour cocher plusieurs lignes · Entrée pour valider") || exit 0
+    sel=$({ echo "⚠  $(t "Tout tuer ($n processus) ‖ Kill all ($n processes)" "Kill all ($n processes) ‖ Tout tuer ($n processus)")"; echo "$procs"; } |
+          menu "󰅙  $(t tuer kill)" -multi-select -mesg "$(t "Shift+Entrée pour cocher plusieurs lignes · Entrée pour valider" "Shift+Enter to select several lines · Enter to confirm")") || exit 0
     [[ -n $sel ]] || exit 0
     if grep -q '^⚠' <<<"$sel"; then pids=$(awk '{print $1}' <<<"$procs")
     else pids=$(awk '{print $1}' <<<"$sel"); fi
@@ -83,7 +86,7 @@ a_kill_dev() {
     local left=""; for p in $pids; do kill -0 "$p" 2>/dev/null && left+="$p "; done
     # shellcheck disable=SC2086
     [[ -n $left ]] && kill -9 $left 2>/dev/null || true
-    notify -u low -i process-stop-symbolic "$(wc -w <<<"$pids") processus arrêtés" "${left:+SIGKILL pour : $left}"
+    notify -u low -i process-stop-symbolic "$(wc -w <<<"$pids") $(t "processus arrêtés" "processes stopped")" "${left:+SIGKILL : $left}"
 }
 
 case "${1:-}" in
