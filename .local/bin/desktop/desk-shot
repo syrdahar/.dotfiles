@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# ──────────────────────────────────────────────────────────────
+#  desk shot — notification de fin de capture (hyprshot -s -- desk-shot)
+#   desk-shot fichier.png     notif avec miniature + boutons :
+#                             Ouvrir · Annoter (satty) · → Drive (si proton-drive est installé)
+#   desk shot --list          (aucune action de palette : appelé par hyprshot)
+#
+#  hyprshot lance la commande donnée après « -- » avec le chemin du fichier,
+#  comme un seul exécutable : d'où ce petit module plutôt que « desk capture … ».
+#  Dossier Drive : $DESK_DRIVE_SHOTS (défaut /my-files/Captures), créé au besoin.
+# ──────────────────────────────────────────────────────────────
+source "$(dirname "$(readlink -f "$0")")/lib.sh"
+DESK_NAME=shot
+REMOTE=${DESK_DRIVE_SHOTS:-/my-files/Captures}
+SHOTS=${DESK_SHOTS_DIR:-$HOME/Images/Captures}
+
+case "${1:-}" in
+    --list) exit 0 ;;
+    ""|-h|--help) sed -n '3,6p' "$0" | sed 's/^#  \{0,1\}//'; exit 1 ;;
+esac
+
+f=$(readlink -f "$1")
+[[ -f $f ]] || die "$(t "Capture introuvable" "Screenshot not found") : $1"
+
+drive=""
+if command -v proton-drive >/dev/null; then drive="→ Drive"; fi
+
+if [[ -n ${DESK_TEST:-} ]]; then
+    notify "$(t "Capture enregistrée" "Screenshot saved")" "$(tilde "$f")" "[${drive:-∅}]"
+    exit 0
+fi
+
+# boutons : notify-send -A attend le clic, en arrière-plan
+setsid -f bash -c '
+    f=$1 title=$2 body=$3 open=$4 annot=$5 drive=$6 desk=$7 remote=$8 shots=$9
+    acts=(-A "open=$open" -A "annotate=$annot")
+    [[ -n $drive ]] && acts+=(-A "drive=$drive")
+    a=$(timeout --foreground 1h notify-send -a desk -u low -i "$f" \
+          -h string:x-canonical-private-synchronous:desk-shot "${acts[@]}" "$title" "$body" 2>/dev/null)
+    case $a in
+        open)     xdg-open "$f" ;;
+        annotate) satty --filename "$f" --output-filename "$shots/annot-%Y%m%d-%H%M%S.png" \
+                        --copy-command wl-copy --early-exit --actions-on-enter save-to-clipboard,save-to-file \
+                        --initial-tool arrow ;;
+        drive)    "$desk" drive push "$remote" "$f" ;;
+    esac
+' _ "$f" "$(t "Capture enregistrée" "Screenshot saved")" "$(tilde "$f") · $(t "copiée" "copied")" \
+    "$(t Ouvrir Open)" "$(t Annoter Annotate)" "$drive" "$DESK_DIR/desk" "$REMOTE" "$SHOTS" >/dev/null 2>&1

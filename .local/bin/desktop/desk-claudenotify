@@ -1,0 +1,174 @@
+#!/usr/bin/env bash
+# ──────────────────────────────────────────────────────────────
+#  desk claudenotify — notifications des sessions Claude Code (hooks)
+#   desk claudenotify hook       appelé par les hooks Notification et Stop de
+#                                ~/.claude/settings.json (JSON de l'événement sur stdin)
+#   desk claudenotify            menu : activer / désactiver, tester
+#   desk claudenotify run <id>   · --list (palette)
+#
+#  - Notification (autorisation demandée, question) : urgence normale ;
+#  - Stop (Claude a fini de répondre) : urgence basse ;
+#  - rien si la fenêtre de la session a le focus (dans tmux : si son pane est visible) ;
+#  - rien pour `claude -p` (scripts) ;
+#  - une notif par session, remplacée à chaque événement (hint synchronous) ;
+#  - clic ou bouton « Aller à la session » : focus de la fenêtre (+ pane tmux) ;
+#  - extrait du message : une ligne, passée par mask_secrets.
+#  Désactivé tant que ~/.local/state/desk/claudenotify.off existe.
+#  Tests : DESK_TEST=1 (notif sur stderr), DESK_CLAUDENOTIFY_FORCE=1 (ignore le focus).
+# ──────────────────────────────────────────────────────────────
+source "$(dirname "$(readlink -f "$0")")/lib.sh"
+DESK_NAME=claudenotify
+OFF=$DESK_STATE/claudenotify.off
+
+ACTIONS=(
+    "toggle|Notifs · Claude Code : activer / désactiver ‖ Notifications · Claude Code: turn on / off"
+    "test|Notifs · Claude Code : notification de test ‖ Notifications · Claude Code: test notification"
+)
+
+enabled() { [[ ! -e $OFF ]]; }
+ppid_of() { sed 's/.*) //' /proc/"$1"/stat 2>/dev/null | awk '{print $2}'; }
+
+# Processus claude parent : lancé en `claude -p` / `--print` (script) → code 0
+print_mode() {
+    local pid=$PPID
+    while (( pid > 1 )); do
+        if [[ $(cat /proc/"$pid"/comm 2>/dev/null) == claude ]]; then
+            tr '\0' '\n' </proc/"$pid"/cmdline 2>/dev/null | grep -qxE -- '-p|--print'
+            return
+        fi
+        pid=$(ppid_of "$pid") || return 1
+        [[ -n $pid ]] || return 1
+    done
+    return 1
+}
+
+# Fenêtre Hyprland d'un processus : on remonte les parents jusqu'à un pid de `hyprctl clients`
+window_of() {   # window_of pid → adresse (rien si introuvable)
+    local pid=$1 clients addr
+    clients=$(hyprctl clients -j 2>/dev/null) || return 0
+    while [[ -n $pid ]] && (( pid > 1 )); do
+        addr=$(jq -r --argjson p "$pid" 'first(.[] | select(.pid == $p) | .address) // empty' <<<"$clients")
+        if [[ -n $addr ]]; then printf '%s' "$addr"; return 0; fi
+        pid=$(ppid_of "$pid") || return 0
+    done
+}
+
+excerpt() {   # excerpt < texte → 1re ligne utile, secrets masqués, ≤ 110 caractères, échappée (pango)
+    mask_secrets | sed -E 's/^[[:space:]#>*`-]+//; s/[*`]//g' \
+        | awk 'NF { print (length($0) > 110 ? substr($0, 1, 109) "…" : $0); exit }' \
+        | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g'
+}
+
+goto() {   # goto adresse [pane tmux]
+    hyprctl dispatch focuswindow "address:$1" >/dev/null
+    if [[ -n ${2:-} ]]; then tmux select-window -t "$2" \; select-pane -t "$2" >/dev/null 2>&1 || true; fi
+}
+
+# Envoi en arrière-plan : notify-send -A attend le clic. Une attente par session,
+# l'ancienne est tuée (groupe de processus) quand la notif est remplacée.
+send() {   # send session urgence icône titre corps adresse pane
+    if [[ -n ${DESK_TEST:-} ]]; then
+        printf '[notif] %s · %s · %s · fenêtre=%s%s\n' "$2" "$4" "$5" "${6:-∅}" "${7:+ pane=$7}" >&2
+        return 0
+    fi
+    local pidf=$DESK_RUN/claudenotify.${1//[^A-Za-z0-9-]/}.pid
+    if [[ -f $pidf ]]; then kill -- -"$(<"$pidf")" 2>/dev/null || true; fi
+    setsid -f "$0" _wait "$pidf" "$@" >/dev/null 2>&1
+}
+
+_wait() {
+    trap - ERR
+    local pidf=$1 sid=$2 urg=$3 icon=$4 title=$5 body=$6 addr=$7 pane=$8 a
+    echo $$ >"$pidf"
+    local -a act=()
+    if [[ -n $addr ]]; then act=(-A "default=$(t Aller Go)" -A "focus=$(t "Aller à la session" "Go to session")"); fi
+    a=$(timeout --foreground 4h notify-send -a "Claude Code" -u "$urg" -i "$icon" \
+          -h "string:x-canonical-private-synchronous:claude-$sid" "${act[@]}" "$title" "$body" 2>/dev/null || true)
+    if [[ $(cat "$pidf" 2>/dev/null) == "$$" ]]; then rm -f "$pidf"; fi
+    case $a in default|focus) goto "$addr" "$pane" ;; esac
+}
+
+a_hook() {
+    local in; in=$(cat)
+    enabled || return 0
+    jq -e 'type == "object"' >/dev/null 2>&1 <<<"$in" || return 0
+    print_mode && return 0
+    local event type sid cwd msg project urg icon title body
+    event=$(jq -r '.hook_event_name // empty' <<<"$in")
+    sid=$(jq -r '.session_id // "?"' <<<"$in")
+    cwd=$(jq -r '.cwd // empty' <<<"$in"); project=$(basename "${cwd:-$HOME}")
+
+    case $event in
+        Notification)
+            type=$(jq -r '.notification_type // empty' <<<"$in")
+            msg=$(jq -r '.message // empty' <<<"$in")
+            urg=normal; icon=dialog-question-symbolic
+            case $type in
+                permission_prompt)  title=$(t "Claude attend ton autorisation" "Claude needs your permission") ;;
+                elicitation_dialog) title=$(t "Claude te pose une question" "Claude has a question for you") ;;
+                idle_prompt)        title=$(t "Claude attend ta réponse" "Claude is waiting for your input") ;;
+                auth_success)       return 0 ;;
+                *)                  title="Claude Code" ;;
+            esac ;;
+        Stop)
+            [[ $(jq -r '.stop_hook_active // false' <<<"$in") == true ]] && return 0
+            msg=$(jq -r '.last_assistant_message // empty' <<<"$in")
+            if [[ -z $msg ]]; then   # anciennes versions : dernier texte de l'assistant dans le transcript
+                local tp; tp=$(jq -r '.transcript_path // empty' <<<"$in")
+                if [[ -f $tp ]]; then
+                    msg=$(tail -n 60 "$tp" | jq -rs '[.[] | select(.type == "assistant") | .message.content[]? | select(.type == "text") | .text] | last // empty' 2>/dev/null || true)
+                fi
+            fi
+            urg=low; icon=emblem-ok-symbolic
+            title=$(t "Claude a terminé" "Claude is done") ;;
+        *) return 0 ;;
+    esac
+
+    # fenêtre de la session ; dans tmux, la chaîne des parents s'arrête au serveur : on part du client
+    local pane=${TMUX_PANE:-} start=$PPID addr active
+    if [[ -n ${TMUX:-} && -n $pane ]]; then
+        start=$(tmux display-message -p -t "$pane" '#{client_pid}' 2>/dev/null || true)
+        [[ -n $start ]] || start=$PPID
+    else
+        pane=""
+    fi
+    addr=$(window_of "$start")
+    if [[ -z ${DESK_CLAUDENOTIFY_FORCE:-} && -n $addr ]]; then
+        active=$(hyprctl activewindow -j 2>/dev/null | jq -r '.address // empty' || true)
+        if [[ $addr == "$active" ]]; then
+            [[ -z $pane ]] && return 0      # tu regardes déjà la session
+            [[ $(tmux display-message -p -t "$pane" '#{&&:#{window_active},#{pane_active}}' 2>/dev/null) == 1 ]] && return 0
+        fi
+    fi
+
+    body="<b>$(printf '%s' "$project" | sed 's/&/\&amp;/g; s/</\&lt;/g')</b>"
+    msg=$(printf '%s' "$msg" | excerpt || true)
+    [[ -n $msg ]] && body+=" · $msg"
+    send "$sid" "$urg" "$icon" "$title" "$body" "$addr" "$pane"
+}
+
+a_toggle() {
+    if enabled; then
+        touch "$OFF"
+        notify -u low -i notification-disabled-symbolic "$(t "Notifs Claude Code désactivées" "Claude Code notifications off")"
+    else
+        rm -f "$OFF"
+        notify -u low -i notification-active-symbolic "$(t "Notifs Claude Code activées" "Claude Code notifications on")"
+    fi
+}
+
+a_test() {
+    enabled || die "$(t "Notifs Claude Code désactivées (menu → activer)" "Claude Code notifications are off (menu → turn on)")"
+    jq -nc --arg cwd "$HOME" '{hook_event_name: "Notification", notification_type: "permission_prompt",
+        session_id: "test", cwd: $cwd, message: "Claude needs your permission to use Bash (test)"}' \
+        | DESK_CLAUDENOTIFY_FORCE=1 a_hook
+}
+
+case "${1:-}" in
+    "")     menu_actions "󰚩  Claude Code" "$(t "Notifications des sessions" "Session notifications") : <b>$(enabled && t activées on || t désactivées off)</b>" ;;
+    hook)   trap - ERR; a_hook || true; exit 0 ;;   # à chaque fin de tour : jamais d'erreur ni de blocage
+    run)    run_action "${2:?usage: desk claudenotify run <id>}" ;;
+    --list) list_actions ;;
+    _wait)  shift; _wait "$@" ;;
+    *)      sed -n '3,6p' "$0" | sed 's/^#  \{0,1\}//'; exit 1 ;;
+esac

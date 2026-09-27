@@ -134,12 +134,14 @@ record_stop() {
     fi
     # chemin copié en text/uri-list : collable comme fichier (navigateur, gestionnaire de fichiers, chats…)
     printf 'file://%s\n' "$file" | wl-copy -t text/uri-list >/dev/null 2>&1
-    local size; size=$(du -h "$file" | cut -f1)
+    local size drive=""; size=$(du -h "$file" | cut -f1)
+    if command -v proton-drive >/dev/null; then drive="→ Drive"; fi   # desk drive push (dossier créé au besoin)
     setsid -f bash -c '
-        a=$(notify-send -a desk -i video-x-generic -A open="$3" -A folder="$4" "$1" "$2")
-        case $a in open) xdg-open "$5" ;; folder) xdg-open "$(dirname "$5")" ;; esac
+        acts=(-A open="$3" -A folder="$4"); [[ -n $6 ]] && acts+=(-A drive="$6")
+        a=$(notify-send -a desk -i video-x-generic "${acts[@]}" "$1" "$2")
+        case $a in open) xdg-open "$5" ;; folder) xdg-open "$(dirname "$5")" ;; drive) "$7" drive push "$8" "$5" ;; esac
     ' _ "$(t "Enregistrement terminé" "Recording saved") · $size" "$(tilde "$file") · $(t "fichier copié" "file copied")" \
-        "$(t Ouvrir Open)" "$(t Dossier Folder)" "$file" >/dev/null 2>&1
+        "$(t Ouvrir Open)" "$(t Dossier Folder)" "$file" "$drive" "$DESK_DIR/desk" "${DESK_DRIVE_VIDEOS:-/my-files/Enregistrements}" >/dev/null 2>&1
 }
 
 a_record_region() { record_start region mp4; }

@@ -1,0 +1,337 @@
+#!/usr/bin/env bash
+# ──────────────────────────────────────────────────────────────
+#  desk drive — Proton Drive (CLI officiel `proton-drive`)
+#   desk drive                   menu des actions
+#   desk drive browse [chemin]   navigateur rofi (défaut /my-files) : télécharger, ouvrir,
+#                                lien public, corbeille, infos, envoyer dans un dossier
+#   desk drive send fichier…     choisit le dossier distant puis envoie (menu clic droit de Dolphin)
+#   desk drive list [chemin]     liste sur stdout (tests, scripts)
+#   desk drive upload dossier fichier… · get chemin · link chemin   (sans menu)
+#   desk drive push dossier fichier…   comme upload, crée le dossier distant s'il manque
+#                                (boutons « → Drive » des notifs de capture : desk-shot, desk-capture)
+#   desk drive run <id> · --list (palette)
+#
+#  Conflits : envoi -f rename -d merge (rien n'est écrasé ; un contenu identique
+#  est ignoré par le CLI) · téléchargement -f rename -d merge.
+#  Jamais de suppression définitive : seulement la corbeille, avec confirmation.
+#  Lien public : copié avec --sensitive (hors historique, effacé après 30 s),
+#  jamais affiché. Log du CLI en INFO (DEBUG par défaut).
+#  Tests : DESK_TEST=1 (notifs sur stderr), DESK_DRIVE_DRY=1 (les commandes qui
+#  écrivent sont affichées, pas lancées), DESK_CLIP_IN / DESK_CLIP_OUT.
+# ──────────────────────────────────────────────────────────────
+source "$(dirname "$(readlink -f "$0")")/lib.sh"
+DESK_NAME=drive
+export PROTON_DRIVE_LOG_LEVEL=${PROTON_DRIVE_LOG_LEVEL:-INFO}
+
+ROOT=/my-files
+DL=${DESK_DRIVE_DOWNLOADS:-$HOME/Downloads}
+SHOTS=${DESK_SHOTS_DIR:-$HOME/Images/Captures}
+VIDEOS=${DESK_VIDEOS_DIR:-$HOME/Vidéos/Enregistrements}
+CACHE=$DESK_RUN/drive
+LAST=$DESK_STATE/drive.last          # dernier dossier distant utilisé pour un envoi
+TTL=60                               # cache des listes (s) : chaque appel du CLI prend ~2 s
+SYNC=string:x-canonical-private-synchronous:desk-drive
+mkdir -p "$CACHE"
+
+ACTIONS=(
+    "browse|Drive · Parcourir mes fichiers ‖ Drive · Browse my files"
+    "upload|Drive · Envoyer des fichiers locaux… ‖ Drive · Upload local files…"
+    "upload-clip|Drive · Envoyer le fichier copié (presse-papier) ‖ Drive · Upload the copied file (clipboard)"
+    "upload-capture|Drive · Envoyer la dernière capture ou vidéo ‖ Drive · Upload the latest screenshot or recording"
+    "shell|Drive · Shell interactif (terminal) ‖ Drive · Interactive shell (terminal)"
+    "status|Drive · État de la connexion ‖ Drive · Connection status"
+    "login|Drive · Se connecter (navigateur) ‖ Drive · Log in (browser)"
+    "logout|Drive · Se déconnecter ‖ Drive · Log out"
+)
+
+# ── Appels au CLI ────────────────────────────────────────────
+pd() {   # proton-drive ; DESK_DRIVE_DRY=1 : tout ce qui écrit est affiché au lieu d'être lancé
+    command -v proton-drive >/dev/null || die "$(t "proton-drive n'est pas installé (paru -S proton-drive-cli-bin)" "proton-drive is not installed (paru -S proton-drive-cli-bin)")"
+    if [[ -n ${DESK_DRIVE_DRY:-} && ! " $1 $2 " =~ ^\ filesystem\ (list|info)\  ]]; then
+        { printf '[dry] proton-drive'; printf ' %q' "$@"; echo; } >&2
+        return 0
+    fi
+    proton-drive "$@"
+}
+
+pd_or_die() {   # pd_or_die "message" args… → stdout du CLI ; erreur → notif (dernière ligne, masquée)
+    local msg=$1 err=$CACHE/err.$$ out; shift
+    if ! out=$(pd "$@" 2>"$err"); then
+        local why; why=$(grep -v '^\s*$' "$err" | tail -n1 | mask_secrets | cut -c1-200)
+        rm -f "$err"
+        die "$msg : ${why:-$(t "erreur inconnue (proton-drive)" "unknown error (proton-drive)")}"
+    fi
+    if [[ -n ${DESK_DRIVE_DRY:-} ]]; then cat "$err" >&2; fi
+    rm -f "$err"
+    printf '%s' "$out"
+}
+
+esc() { sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g' <<<"$1"; }
+key() { printf '%s' "$1" | sha1sum | cut -c1-16; }
+invalidate() { rm -f "$CACHE/$(key "$1").json"; }
+
+progress() {   # notif basse, remplacée par la suivante (même hint) ; muette pour `desk drive list`
+    [[ -z ${DESK_DRIVE_QUIET:-} ]] || return 0
+    notify -a "Proton Drive" -u low -i folder-remote -h "$SYNC" "$1" "${2:-}"
+}
+
+# notif de fin avec boutons : done_notif titre corps [libellé commande]…  (2 boutons max)
+done_notif() {
+    if [[ -n ${DESK_TEST:-} ]]; then notify "$1" "$2"; return 0; fi
+    setsid -f bash -c '
+        title=$1 body=$2; shift 2; args=(); cmds=(); i=0
+        while (( $# >= 2 )); do args+=(-A "a$i=$1"); cmds+=("$2"); shift 2; i=$((i + 1)); done
+        a=$(timeout --foreground 1h notify-send -a "Proton Drive" -i folder-remote \
+              -h string:x-canonical-private-synchronous:desk-drive "${args[@]}" "$title" "$body" 2>/dev/null)
+        if [[ $a == a[0-9] ]]; then eval "${cmds[${a#a}]}"; fi
+    ' _ "$@" >/dev/null 2>&1
+}
+
+list_json() {   # list_json chemin → JSON du CLI (cache $TTL s)
+    local p=$1 f; f=$CACHE/$(key "$1").json
+    if [[ -f $f ]] && (( $(date +%s) - $(stat -c %Y "$f") < TTL )); then cat "$f"; return 0; fi
+    progress "$(t "Chargement…" "Loading…")" "$(esc "$p")"
+    pd_or_die "$(t "Impossible de lister" "Cannot list") $p" filesystem list -j "$p" >"$f.tmp"
+    mv "$f.tmp" "$f"
+    cat "$f"
+}
+
+rows() {   # JSON → « type<TAB>nom<TAB>taille<TAB>date » : dossiers puis fichiers, par nom
+    jq -r 'sort_by([(.type != "folder"), ((.name.value // "") | ascii_downcase)]) | .[]
+           | [.type, (if .name.ok then .name.value else "⚠" end),
+              ((.totalStorageSize // 0) | tostring), ((.modificationTime // "")[0:10])] | @tsv'
+}
+
+size_h() { numfmt --to=iec "$1" 2>/dev/null || echo "$1"; }
+
+# ── Navigateur ───────────────────────────────────────────────
+# browse chemin [pick] : en mode pick (choix d'un dossier d'envoi), affiche le chemin choisi
+browse() {
+    local path=${1:-$ROOT} mode=${2:-open} json idx ty nm sz dt
+    while :; do
+        json=$(list_json "$path")
+        local -a kind=() name=() lines=()
+        if [[ $mode == pick ]]; then
+            kind+=(here); name+=(""); lines+=("󰄬  $(t "Envoyer ici" "Upload here") ‖ $(t "Upload here" "Envoyer ici")")
+            kind+=(mkdir); name+=(""); lines+=("󰉗  $(t "Nouveau dossier…" "New folder…") ‖ $(t "New folder" "Nouveau dossier")")
+        else
+            kind+=(this); name+=(""); lines+=("󰒓  $(t "Actions sur ce dossier…" "Actions on this folder…") ‖ $(t "folder actions upload link" "dossier actions envoyer lien")")
+        fi
+        if [[ $path != "$ROOT" ]]; then kind+=(up); name+=(""); lines+=("󰁞  .. ‖ parent"); fi
+        while IFS=$'\t' read -r ty nm sz dt; do
+            [[ -n $ty ]] || continue
+            if [[ $ty == folder ]]; then kind+=(dir); lines+=("󰉋  $nm/")
+            elif [[ $mode == pick ]]; then continue
+            else kind+=(file); lines+=("$(printf '󰈔  %-46s %7s  %s' "$nm" "$(size_h "$sz")" "$dt")")
+            fi
+            name+=("$nm")
+        done < <(rows <<<"$json")
+
+        idx=$(printf '%s\n' "${lines[@]}" | menu "󰅟  drive" -format i -mesg "<b>$(esc "$path")</b>$([[ $mode == pick ]] && printf '  ·  %s' "$(t "choisis le dossier de destination" "choose the destination folder")")") || return 1
+        [[ -n $idx ]] || return 1
+        case ${kind[$idx]} in
+            here)  printf '%s' "$path"; return 0 ;;
+            mkdir) local new; new=$(menu "󰉗  $(t "nom du dossier" "folder name")" -mesg "$(esc "$path")/…" </dev/null) || continue
+                   [[ -n ${new// } ]] || continue
+                   pd_or_die "$(t "Création impossible" "Cannot create")" filesystem create-folder -j "$path" "$new" >/dev/null
+                   invalidate "$path"; path=$path/$new ;;
+            this)  node_menu "$path" folder; return 0 ;;
+            up)    path=${path%/*}; [[ -n $path ]] || path=$ROOT ;;
+            dir)   path=$path/${name[$idx]} ;;
+            file)  node_menu "$path/${name[$idx]}" file; return 0 ;;
+        esac
+    done
+}
+
+node_menu() {   # node_menu chemin_distant file|folder
+    local r=$1 type=$2 idx
+    local -a ids labels
+    if [[ $type == file ]]; then
+        ids=(open download link info trash)
+        labels=("󰏌  Télécharger et ouvrir ‖ 󰏌  Download and open")
+    else
+        ids=(upload-here download link info trash)
+        labels=("󰅧  Envoyer des fichiers ici… ‖ 󰅧  Upload files here…")
+    fi
+    labels+=("󰇚  Télécharger dans $(tilde "$DL") ‖ 󰇚  Download to $(tilde "$DL")"
+             "󰌷  Lien public (copié · hors historique) ‖ 󰌷  Public link (copied · not in history)"
+             "󰋽  Infos ‖ 󰋽  Info"
+             "󰩺  Mettre à la corbeille ‖ 󰩺  Move to trash")
+    idx=$(for l in "${labels[@]}"; do bi_row "$l"; done | menu "󰅟  ${r##*/}" -format i -mesg "<b>$(esc "$r")</b>") || return 0
+    [[ -n $idx ]] || return 0
+    case ${ids[$idx]} in
+        open)        download "$r" open ;;
+        download)    download "$r" ;;
+        upload-here) pick_local_upload "$r" ;;
+        link)        share_link "$r" ;;
+        info)        info "$r" ;;
+        trash)       trash "$r" ;;
+    esac
+}
+
+# ── Opérations ───────────────────────────────────────────────
+download() {   # download chemin_distant [open]
+    local r=$1 nm=${1##*/} f
+    mkdir -p "$DL"
+    progress "$(t "Téléchargement…" "Downloading…")" "$(esc "$nm")"
+    pd_or_die "$(t "Téléchargement échoué" "Download failed")" filesystem download -j -f rename -d merge "$r" "$DL" >/dev/null
+    [[ -n ${DESK_DRIVE_DRY:-} ]] && return 0
+    f=$DL/$(ls -t "$DL" | head -n1)             # renommé en cas de conflit : on prend le plus récent
+    if [[ ${2:-} == open ]]; then
+        setsid -f xdg-open "$f" >/dev/null 2>&1
+        progress "$(t "Ouverture" "Opening")" "$(esc "$(tilde "$f")")"
+    else
+        done_notif "$(t "Téléchargé" "Downloaded") · $nm" "$(tilde "$f")" \
+            "$(t Ouvrir Open)" "xdg-open $(printf %q "$f")" "$(t Dossier Folder)" "xdg-open $(printf %q "$DL")"
+    fi
+}
+
+upload() {   # upload dossier_distant fichier_local…
+    local dest=$1 f; shift
+    (( $# )) || die "$(t "Aucun fichier à envoyer" "Nothing to upload")"
+    for f; do [[ -e $f ]] || die "$(t "Fichier introuvable" "File not found") : $(tilde "$f")"; done
+    local what; if (( $# == 1 )); then what=${1##*/}; else what="$# $(t éléments items)"; fi
+    progress "$(t "Envoi…" "Uploading…")" "$(esc "$what") → $(esc "$dest")"
+    pd_or_die "$(t "Envoi échoué" "Upload failed")" filesystem upload -j -f rename -d merge "$@" "$dest" >/dev/null
+    invalidate "$dest"; echo "$dest" >"$LAST"
+    done_notif "$(t "Envoyé sur Proton Drive" "Uploaded to Proton Drive")" "$(esc "$what") → $(esc "$dest")" \
+        "$(t "Voir dans Drive" "Show in Drive")" "$(printf %q "$0") browse $(printf %q "$dest")"
+}
+
+ensure_dir() {   # ensure_dir /my-files/A/B : crée les dossiers distants manquants
+    local p=$1 cur=$ROOT part
+    [[ $p == "$ROOT" || $p == "$ROOT"/* ]] || die "$(t "Le dossier distant doit commencer par" "Remote folder must start with") $ROOT : $p"
+    local -a parts; IFS=/ read -ra parts <<<"${p#"$ROOT"}"
+    for part in "${parts[@]}"; do
+        [[ -n $part ]] || continue
+        if ! list_json "$cur" | jq -e --arg n "$part" 'any(.[]; .type == "folder" and .name.value == $n)' >/dev/null; then
+            pd_or_die "$(t "Création impossible" "Cannot create") $cur/$part" filesystem create-folder -j "$cur" "$part" >/dev/null
+            invalidate "$cur"
+        fi
+        cur=$cur/$part
+    done
+}
+
+send() {   # send fichier_local… : choix du dossier distant (départ : le dernier utilisé) puis envoi
+    (( $# )) || die "$(t "Aucun fichier à envoyer" "Nothing to upload")"
+    local start=$ROOT dest
+    if [[ -f $LAST ]]; then start=$(<"$LAST"); fi
+    [[ $start == "$ROOT"* ]] || start=$ROOT
+    dest=$(browse "$start" pick) || return 0      # annulé
+    upload "$dest" "$@"
+}
+
+share_link() {
+    local r=$1 out url
+    progress "$(t "Création du lien…" "Creating link…")" "$(esc "${r##*/}")"
+    out=$(pd_or_die "$(t "Lien impossible" "Cannot create link")" sharing set-url -j "$r")
+    [[ -n ${DESK_DRIVE_DRY:-} ]] && { printf '%s\n' "$out"; return 0; }
+    url=$(jq -r '[.. | strings | select(test("^https://drive\\.proton\\.me/"))] | first // empty' <<<"$out" 2>/dev/null || true)
+    [[ -n $url ]] || die "$(t "Lien absent de la réponse du CLI" "No link in the CLI response")"
+    if [[ -n ${DESK_CLIP_OUT:-} ]]; then printf '%s' "$url" >"$DESK_CLIP_OUT"
+    else printf '%s' "$url" | wl-copy --sensitive >/dev/null 2>&1; fi
+    invalidate "${r%/*}"
+    notify -a "Proton Drive" -u low -i emblem-shared-symbolic -h "$SYNC" "$(t "Lien public copié" "Public link copied") · ${r##*/}" \
+        "$(t "Hors historique · effacé du presse-papier dans 30 s" "Not in history · cleared from clipboard in 30 s")"
+}
+
+info() {
+    local j
+    j=$(pd_or_die "$(t "Infos impossibles" "Cannot get info")" filesystem info -j "$1")
+    notify -a "Proton Drive" -i dialog-information-symbolic -h "$SYNC" "$(esc "${1##*/}")" "$(jq -r --arg sz "$(t taille size)" --arg mod "$(t modifié modified)" \
+        --arg sh "$(t partagé shared)" --arg lk "$(t "lien public" "public link")" --arg y "$(t oui yes)" --arg n "$(t non no)" '
+        "\($sz) : \(.totalStorageSize // 0) o · \(.mediaType // .type)\n\($mod) : \((.modificationTime // "")[0:16] | sub("T"; " "))\n\($sh) : \(if .isShared then $y else $n end) · \($lk) : \(if .isSharedByUrl then $y else $n end)"' <<<"$j")"
+}
+
+trash() {
+    confirm "$(t "Mettre à la corbeille" "Move to trash") : ${1##*/} ?" || return 0
+    pd_or_die "$(t "Corbeille impossible" "Cannot move to trash")" filesystem trash -j "$1" >/dev/null
+    invalidate "${1%/*}"
+    notify -a "Proton Drive" -u low -i user-trash-symbolic -h "$SYNC" "$(t "Mis à la corbeille" "Moved to trash")" \
+        "$(esc "$1") · $(t "restaurable depuis /trash" "restorable from /trash")"
+}
+
+# fichiers locaux récents (60 j, 5 niveaux) → choix multiple (Maj+Entrée) → envoi
+pick_local_upload() {   # pick_local_upload [dossier_distant]
+    local -a files=() picked=()
+    mapfile -t files < <(fd --type f --changed-within 60d --max-depth 5 --hidden \
+        -E .git -E node_modules -E .cache -E .local/share -E .mozilla -E .var . "$HOME" \
+        --exec-batch stat -c '%Y %n' 2>/dev/null | sort -rn | head -n 500 | cut -d' ' -f2-)
+    (( ${#files[@]} )) || die "$(t "Aucun fichier récent trouvé" "No recent file found")"
+    local idx
+    idx=$(for f in "${files[@]}"; do tilde "$f"; echo; done | menu "󰅧  $(t envoyer upload)" -format i -multi-select \
+            -mesg "$(t "Fichiers modifiés ces 60 jours · Maj+Entrée : plusieurs" "Files changed in the last 60 days · Shift+Enter: several")") || return 0
+    local i; while read -r i; do [[ -n $i ]] && picked+=("${files[$i]}"); done <<<"$idx"
+    (( ${#picked[@]} )) || return 0
+    if [[ -n ${1:-} ]]; then upload "$1" "${picked[@]}"; else send "${picked[@]}"; fi
+}
+
+clip_files() {   # fichiers désignés par le presse-papier : text/uri-list (Dolphin, desk capture) ou chemin en texte
+    local s
+    if [[ -z ${DESK_CLIP_IN+x} ]] && wl-paste --list-types 2>/dev/null | grep -qx 'text/uri-list'; then
+        s=$(wl-paste --no-newline -t text/uri-list 2>/dev/null || true)
+    else
+        s=$(clip_get)
+    fi
+    python3 -c '
+import os, sys, urllib.parse as u
+for line in sys.stdin.read().splitlines():
+    line = line.strip()
+    if not line or line.startswith("#"): continue
+    if line.startswith("file://"): line = u.unquote(u.urlsplit(line).path)
+    line = os.path.expanduser(line)
+    if os.path.exists(line): print(os.path.abspath(line))' <<<"$s"
+}
+
+# ── Actions (palette) ────────────────────────────────────────
+a_browse() { browse "${1:-$ROOT}" || true; }
+a_upload() { pick_local_upload; }
+a_upload_clip() {
+    local -a f; mapfile -t f < <(clip_files)
+    (( ${#f[@]} )) || die "$(t "Le presse-papier ne désigne aucun fichier existant" "The clipboard does not point to an existing file")"
+    send "${f[@]}"
+}
+a_upload_capture() {
+    local f
+    # captures desk, vidéos, et fichiers hyprshot (enregistrés dans $HYPRSHOT_DIR, sinon ~)
+    f=$( { find "$SHOTS" "$VIDEOS" -maxdepth 1 -type f -printf '%T@ %p\n'
+           find "${HYPRSHOT_DIR:-$HOME}" -maxdepth 1 -type f -name '*_hyprshot.png' -printf '%T@ %p\n'; } 2>/dev/null \
+         | sort -rn | head -n1 | cut -d' ' -f2-)
+    [[ -n $f ]] || die "$(t "Aucune capture dans" "No capture in") $(tilde "$SHOTS") · $(tilde "$VIDEOS")"
+    send "$f"
+}
+a_shell()  { float_run "Proton Drive" "$HOME" proton-drive; }
+a_login()  { float_run "Proton Drive · login" "$HOME" proton-drive auth login; }
+a_logout() {
+    confirm "$(t "Se déconnecter de Proton Drive" "Log out of Proton Drive") ?" || return 0
+    pd_or_die "$(t "Déconnexion impossible" "Cannot log out")" auth logout >/dev/null
+    rm -f "$CACHE"/*.json
+    notify -a "Proton Drive" -u low -i system-log-out-symbolic "$(t "Déconnecté de Proton Drive" "Logged out of Proton Drive")"
+}
+a_status() {
+    progress "$(t "Vérification…" "Checking…")"
+    if proton-drive filesystem list -j / >/dev/null 2>&1; then
+        notify -a "Proton Drive" -u low -i emblem-ok-symbolic -h "$SYNC" "$(t "Proton Drive : connecté" "Proton Drive: connected")" \
+            "$(t "Session dans le trousseau (gnome-keyring)" "Session in the keyring (gnome-keyring)")"
+    else
+        notify -a "Proton Drive" -i dialog-warning-symbolic -h "$SYNC" "$(t "Proton Drive : non connecté" "Proton Drive: not connected")" \
+            "$(t "Palette → Drive · Se connecter" "Palette → Drive · Log in")"
+    fi
+}
+
+
+case "${1:-}" in
+    "")     menu_actions "󰅟  drive" "Proton Drive · $(t "tes fichiers chiffrés de bout en bout" "your end-to-end encrypted files")" ;;
+    browse) browse "${2:-$ROOT}" || true ;;
+    send)   shift; send "$@" ;;
+    push)   shift; ensure_dir "${1:?usage: desk drive push /my-files/dossier fichier…}"; upload "$1" "${@:2}" ;;
+    upload) shift; upload "${1:?usage: desk drive upload /my-files/dossier fichier…}" "${@:2}" ;;
+    get)    download "${2:?usage: desk drive get /my-files/chemin}" ;;
+    link)   share_link "${2:?usage: desk drive link /my-files/chemin}" ;;
+    list)   export DESK_DRIVE_QUIET=1; list_json "${2:-$ROOT}" | rows | while IFS=$'\t' read -r ty nm sz dt; do
+                if [[ $ty == folder ]]; then printf '%s/\n' "$nm"; else printf '%-50s %8s  %s\n' "$nm" "$(size_h "$sz")" "$dt"; fi
+            done ;;
+    run)    shift; run_action "${1:?usage: desk drive run <id>}" "${@:2}" ;;
+    --list) list_actions ;;
+    *)      sed -n '3,12p' "$0" | sed 's/^#  \{0,1\}//'; exit 1 ;;
+esac

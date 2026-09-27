@@ -104,7 +104,7 @@ a_pick() {
             m=" "; grep -qxF "$d" <<<"$open" && m="●"
             printf '%s %-28s %s\n' "$m" "$(basename "$d")" "$(tilde "$(dirname "$d")")"
           done | menu "󰉋  $(t projet project)" -format i -mesg "$(t "${#all[@]} projets · ● session tmux ouverte · racines : palette → Projet · Modifier les dossiers racines" "${#all[@]} projects · ● tmux session open · roots: palette → Project · Edit project root folders")") || exit 0
-    [[ -n $idx ]] && open_project "${all[$idx]}"
+    if [[ -n $idx ]]; then open_project "${all[$idx]}"; fi
 }
 
 a_close() {

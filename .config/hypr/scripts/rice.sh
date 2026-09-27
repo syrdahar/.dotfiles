@@ -27,6 +27,7 @@ LOOK_LINKS=(
     "$C/rofi      look.rasi          looks/%s.rasi"
     "$C/alacritty look.toml          looks/%s.toml"
     "$C/swayosd   look.css           looks/%s.css"
+    "$C/Kvantum   kvantum.kvconfig   looks/%s.kvconfig"
 )
 
 current_bar()  { basename "$(readlink "$C/waybar/mode.css")" .css; }

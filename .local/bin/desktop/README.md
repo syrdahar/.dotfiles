@@ -30,11 +30,13 @@ In the leader, SUPER may stay pressed. Any other key cancels (and is swallowed).
 | `b` | Toggle btop scratchpad | Scratchpad btop | `desk scratch btop` |
 | `c` | Clipboard actions for the copied content (URL, JSON, JWT, trace, timestamp, text, generators) | Actions selon le contenu copié | `desk clip` |
 | `d` | Docker containers & compose stacks | Conteneurs et stacks Docker | `desk docker` |
+| `f` | Proton Drive: browse, download, upload, public link, trash | Proton Drive : parcourir, télécharger, envoyer, lien | `desk drive` |
 | `g` | Git menu for the active terminal's repo | Menu git du dossier courant | `desk git` |
 | `k` | Listening ports (open, curl, kill) | Ports en écoute | `desk ports` |
 | `l` | Toggle French / English | Basculer français / anglais | `desk lang toggle` |
 | `m` | Mobile: scrcpy, emulator, adb reverse, RN dev menu | Mobile : scrcpy, émulateur, adb | `desk mobile` |
 | `n` | Notes & TODOs in `~/notes` | Notes et TODO | `desk notes` |
+| `o` | Claude Code session notifications (on/off, test) | Notifications des sessions Claude Code | `desk claudenotify` |
 | `p` | Open / switch to a project (workspace + tmux + nvim) | Ouvrir / rejoindre un projet | `desk project` |
 | `q` | Calculator & unit conversions (qalc) | Calculatrice et conversions | `desk calc` |
 | `r` | Screenshots: OCR, annotate, window → clipboard, screen recording / GIF | Captures : OCR, annotation, vidéo | `desk capture` |
@@ -67,6 +69,9 @@ Full, always-up-to-date list: `desk cheatsheet --print` (or `SUPER+Space` `h`).
 | `notes` | `desk notes note "call the client"` · `desk notes todo "fix login"` |
 | `focus` | `desk focus timer 25` · `desk focus timer 1h30` · `desk focus pomodoro` · `desk focus status` |
 | `lang` | `desk lang` · `desk lang fr` · `desk lang toggle` |
+| `drive` | `desk drive browse /my-files/Docs` · `desk drive upload /my-files/Docs file.pdf` · `desk drive get /my-files/a.pdf` · `desk drive link /my-files/a.pdf` · `desk drive list` · Dolphin: right-click → Send to Proton Drive |
+| `shot` | called by hyprshot (`-s -- desk-shot`) after a screenshot to file: notification with thumbnail + Open · Annotate · → Drive (`/my-files/Captures`, recordings → `/my-files/Enregistrements`) |
+| `claudenotify` | `desk claudenotify run toggle` · `desk claudenotify run test` · `hook` (called by Claude Code hooks) |
 
 Add `~/.local/bin/desktop` to your PATH if you want `desk` in the shell
 (it is **not** added automatically; modules are prefixed `desk-` so they never
@@ -91,6 +96,7 @@ shadow `git`, `docker`, `ssh`…).
 Changes to pre-existing files (everything else is new):
 `hyprland.conf` — line 46 (text cliphist watcher) commented + `source =` lines at the end;
 `keybinds.conf` line 121 — layout-prev moved to `SUPER+CTRL+Space`;
+`keybinds.conf` lines 191–196 — hyprshot file captures end with `-s -- ~/.local/bin/desktop/desk-shot` (own notification with buttons);
 `alacritty.toml` — `[selection] save_to_clipboard = true` (select = copy).
 Backups: `~/.config/hypr.bak-2026-09-27/`, `~/.config/rofi.bak-2026-09-27/`, `alacritty.toml.bak-2026-09-27`.
 

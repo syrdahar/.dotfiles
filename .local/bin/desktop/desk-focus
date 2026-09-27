@@ -123,7 +123,7 @@ a_toggle() {
         echo "bar" >"$FOCUS"
         swaync-client -dn >/dev/null 2>&1 || true
         pkill -SIGUSR1 -x waybar || true
-        [[ $pomo == 1 ]] && { echo pomo >>"$FOCUS"; a_pomodoro; }
+        if [[ $pomo == 1 ]]; then echo pomo >>"$FOCUS"; a_pomodoro; fi
     fi
 }
 
