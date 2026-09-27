@@ -1,0 +1,163 @@
+#!/usr/bin/env bash
+# ──────────────────────────────────────────────────────────────
+#  desk system — audio, Wi-Fi, Bluetooth, VPN, session
+#   desk system            menu
+#   desk system run <id>   action directe (voir --list)
+#   desk system --list     actions pour la palette
+#  Réutilise tes scripts : ne pas déranger (dnd.sh), micro (osd.sh), lumière
+#  nocturne (hyprnight.sh), menu alimentation (waybar/powermenu.sh), VPN
+#  (waybar/nordvpn-toggle.sh) — via leurs binds quand ils en ont un.
+# ──────────────────────────────────────────────────────────────
+source "$(dirname "$(readlink -f "$0")")/lib.sh"
+DESK_NAME=system
+
+ACTIONS=(
+    "sink|Audio · Choisir la sortie (haut-parleurs, casque…) ‖ Audio · Choose output (speakers, headset…)"
+    "source|Audio · Choisir l'entrée (micro) ‖ Audio · Choose input (microphone)"
+    "mic|Audio · Couper / rétablir le micro ‖ Audio · Mute / unmute microphone"
+    "wifi|Wi-Fi · Réseaux (se connecter) ‖ Wi-Fi · Networks (connect)"
+    "wifi-toggle|Wi-Fi · Activer / désactiver ‖ Wi-Fi · Turn on / off"
+    "bt|Bluetooth · Appareils (connecter / déconnecter) ‖ Bluetooth · Devices (connect / disconnect)"
+    "bt-scan|Bluetooth · Rechercher et appairer un appareil ‖ Bluetooth · Scan and pair a device"
+    "bt-toggle|Bluetooth · Activer / désactiver ‖ Bluetooth · Turn on / off"
+    "vpn|VPN · NordVPN on/off ‖ VPN · NordVPN on/off"
+    "dnd|Notifs · Ne pas déranger on/off ‖ Notifications · Do not disturb on/off"
+    "night|Système · Lumière nocturne on/off ‖ System · Night light on/off"
+    "reload|Session · Recharger Hyprland (avec notification) ‖ Session · Reload Hyprland (with notification)"
+    "lock|Session · Verrouiller ‖ Session · Lock screen"
+    "power|Session · Menu alimentation ‖ Session · Power menu"
+)
+
+# ── Audio (PipeWire via pactl) ───────────────────────────────
+pick_device() {   # pick_device sink|source
+    local kind=$1 def rows idx name
+    def=$(pactl "get-default-$kind")
+    rows=$(pactl -f json list "${kind}s" | jq -r --arg d "$def" \
+        '.[] | select(.name | endswith(".monitor") | not) | "\(.name)\t\(if .name == $d then "●" else " " end) \(.description)"')
+    [[ -n $rows ]] || die "$(t "Aucun périphérique audio" "No audio device")"
+    idx=$(cut -f2 <<<"$rows" | menu "󰕾  $( [[ $kind == sink ]] && t sortie output || t entrée input)" -format i) || exit 0
+    [[ -n $idx ]] || exit 0
+    name=$(sed -n "$((idx + 1))p" <<<"$rows" | cut -f1)
+    pactl "set-default-$kind" "$name"
+    # les flux en cours suivent le nouveau périphérique
+    local stream=$([[ $kind == sink ]] && echo sink-input || echo source-output)
+    pactl list short "${stream}s" | cut -f1 | while read -r id; do pactl "move-$stream" "$id" "$name" 2>/dev/null || true; done
+    notify -u low -i audio-card-symbolic "$( [[ $kind == sink ]] && t "Sortie audio" "Audio output" || t "Entrée audio" "Audio input")" \
+        "$(sed -n "$((idx + 1))p" <<<"$rows" | cut -f2 | sed 's/^. //')"
+}
+a_sink()   { pick_device sink; }
+a_source() { pick_device source; }
+a_mic()    { run_bind "Média · Couper le micro"; }
+
+# ── Wi-Fi (NetworkManager) ───────────────────────────────────
+a_wifi() {
+    [[ $(nmcli radio wifi) == enabled ]] || die "$(t "Le Wi-Fi est désactivé (Wi-Fi · Activer)" "Wi-Fi is off (Wi-Fi · Turn on)")"
+    notify -u low -i network-wireless-symbolic "Wi-Fi" "$(t "Recherche des réseaux…" "Scanning networks…")"
+    local rows known idx ssid sec
+    # champs -t séparés par « : » (les « : » des SSID sont échappés en « \: »)
+    rows=$(nmcli -t -f IN-USE,SIGNAL,SECURITY,SSID dev wifi list --rescan auto | python3 -c '
+import re,sys
+seen=set()
+for l in sys.stdin:
+    f=[x.replace("\\:",":") for x in re.split(r"(?<!\\):", l.rstrip("\n"), maxsplit=3)]
+    if len(f)<4 or not f[3] or f[3] in seen: continue
+    seen.add(f[3]); print("\t".join(f))')
+    [[ -n $rows ]] || die "$(t "Aucun réseau trouvé" "No network found")"
+    known=$(nmcli -t -f NAME,TYPE con show | awk -F: '$2 ~ /wireless/ { print $1 }')
+    idx=$(awk -F'\t' '{ printf "%s %3s%%  %-8s %s\n", ($1 == "*" ? "●" : " "), $2, ($3 == "" ? "—" : $3), $4 }' <<<"$rows" |
+          menu "󰤨  wi-fi" -format i -mesg "$(t "● connecté · Entrée pour se connecter" "● connected · Enter to connect")") || exit 0
+    [[ -n $idx ]] || exit 0
+    IFS=$'\t' read -r _ _ sec ssid < <(sed -n "$((idx + 1))p" <<<"$rows")
+    local out
+    if grep -qxF "$ssid" <<<"$known"; then
+        out=$(nmcli con up id "$ssid" 2>&1) || die "$out"
+    elif [[ -n $sec ]]; then
+        local pw; pw=$(menu "󰌾  $ssid" -password -l 0 -mesg "$(t "Mot de passe Wi-Fi" "Wi-Fi password")" </dev/null) || exit 0
+        # mot de passe passé sur stdin (--ask), jamais en argument visible dans ps
+        out=$(printf '%s\n' "$pw" | nmcli --ask dev wifi connect "$ssid" 2>&1) || die "$out"
+    else
+        out=$(nmcli dev wifi connect "$ssid" 2>&1) || die "$out"
+    fi
+    notify -u low -i network-wireless-signal-excellent-symbolic "$(t "Wi-Fi connecté" "Wi-Fi connected")" "$ssid"
+}
+a_wifi_toggle() {
+    if [[ $(nmcli radio wifi) == enabled ]]; then nmcli radio wifi off; notify -u low -i network-wireless-offline-symbolic "$(t "Wi-Fi désactivé" "Wi-Fi off")"
+    else nmcli radio wifi on; notify -u low -i network-wireless-symbolic "$(t "Wi-Fi activé" "Wi-Fi on")"; fi
+}
+
+# ── Bluetooth (bluetoothctl) ─────────────────────────────────
+bt_on() { bluetoothctl show 2>/dev/null | grep -q "Powered: yes"; }
+bt_power_on() { rfkill unblock bluetooth 2>/dev/null || true; sleep 0.5; bluetoothctl power on >/dev/null; }
+a_bt() {
+    bt_on || { bt_power_on; bt_on || die "$(t "Bluetooth indisponible (service bluetooth arrêté ?)" "Bluetooth unavailable (bluetooth service stopped?)")"; }
+    local rows connected idx mac name out
+    rows=$(bluetoothctl devices Paired | awk '{ mac = $2; $1 = $2 = ""; sub(/^  /, ""); print mac "\t" $0 }')
+    [[ -n $rows ]] || die "$(t "Aucun appareil appairé (Bluetooth · Rechercher et appairer)" "No paired device (Bluetooth · Scan and pair)")"
+    connected=$(bluetoothctl devices Connected | awk '{ print $2 }')
+    idx=$(while IFS=$'\t' read -r mac name; do printf '%s %s\n' "$(grep -qx "$mac" <<<"$connected" && echo ● || echo " ")" "$name"; done <<<"$rows" |
+          menu "󰂯  bluetooth" -format i -mesg "$(t "● connecté · Entrée : connecter / déconnecter" "● connected · Enter: connect / disconnect")") || exit 0
+    [[ -n $idx ]] || exit 0
+    IFS=$'\t' read -r mac name < <(sed -n "$((idx + 1))p" <<<"$rows")
+    if grep -qx "$mac" <<<"$connected"; then
+        out=$(bluetoothctl disconnect "$mac" 2>&1) || die "$out"
+        notify -u low -i bluetooth-disabled-symbolic "$(t "Déconnecté" "Disconnected")" "$name"
+    else
+        notify -u low -i bluetooth-active-symbolic "$(t "Connexion…" "Connecting…")" "$name"
+        out=$(timeout 15 bluetoothctl connect "$mac" 2>&1) && [[ $out == *"successful"* ]] || die "$(t "Échec de connexion" "Connection failed") : $name"
+        notify -u low -i bluetooth-active-symbolic "$(t "Connecté" "Connected")" "$name"
+    fi
+}
+a_bt_scan() {
+    bt_on || bt_power_on
+    notify -u low -i bluetooth-active-symbolic "Bluetooth" "$(t "Recherche pendant 8 s… (mets l'appareil en mode appairage)" "Scanning for 8 s… (put the device in pairing mode)")"
+    timeout 9 bluetoothctl --timeout 8 scan on >/dev/null 2>&1 || true
+    local rows idx mac name out paired
+    paired=$(bluetoothctl devices Paired | awk '{ print $2 }')
+    rows=$(bluetoothctl devices | awk '{ mac = $2; $1 = $2 = ""; sub(/^  /, ""); print mac "\t" $0 }' | grep -vFf <(echo "${paired:-none}") || true)
+    [[ -n $rows ]] || die "$(t "Aucun nouvel appareil trouvé" "No new device found")"
+    idx=$(cut -f2 <<<"$rows" | menu "󰂯  $(t appairer pair)" -format i) || exit 0
+    [[ -n $idx ]] || exit 0
+    IFS=$'\t' read -r mac name < <(sed -n "$((idx + 1))p" <<<"$rows")
+    out=$(timeout 30 bluetoothctl pair "$mac" 2>&1) || die "$(t "Échec d'appairage" "Pairing failed") : $name"
+    bluetoothctl trust "$mac" >/dev/null 2>&1 || true
+    timeout 15 bluetoothctl connect "$mac" >/dev/null 2>&1 || true
+    notify -u low -i bluetooth-active-symbolic "$(t "Appairé" "Paired")" "$name"
+}
+a_bt_toggle() {
+    if bt_on; then bluetoothctl power off >/dev/null; notify -u low -i bluetooth-disabled-symbolic "$(t "Bluetooth désactivé" "Bluetooth off")"
+    else bt_power_on; notify -u low -i bluetooth-active-symbolic "$(t "Bluetooth activé" "Bluetooth on")"; fi
+}
+
+# ── Existant ─────────────────────────────────────────────────
+a_vpn() {
+    local s=~/.config/waybar/scripts/nordvpn-toggle.sh
+    [[ -x $s ]] || die "$(t "Script introuvable" "Script not found") : $s"
+    setsid -f "$s" >/dev/null 2>&1
+}
+a_dnd()   { run_bind "Notifs · Ne pas déranger on/off"; }
+a_night() { run_bind "Système · Lumière nocturne on/off"; }
+a_lock()  { run_bind "Session · Verrouiller"; }
+a_power() { run_bind "Session · Menu alimentation"; }
+a_reload() {
+    # même commande que SUPER+SHIFT+R, avec une notification qui signale les erreurs de config
+    hyprctl reload >/dev/null && ~/.config/hypr/scripts/wm.sh reapply || true
+    pkill -SIGUSR2 waybar || true
+    local e; e=$(hyprctl configerrors | grep -v '^\s*$' || true)
+    if [[ -z $e ]]; then notify -u low -i view-refresh-symbolic "$(t "Config rechargée" "Config reloaded")" "$(t "Aucune erreur" "No errors")"
+    else notify -u critical -i dialog-error-symbolic "$(t "Config rechargée avec erreurs" "Config reloaded with errors")" "$e"; fi
+}
+
+status_line() {
+    local sink wifi bt
+    sink=$(pactl -f json list sinks | jq -r --arg d "$(pactl get-default-sink)" '.[] | select(.name == $d) | .description' | head -c 40)
+    wifi=$(nmcli -t -f ACTIVE,SSID dev wifi 2>/dev/null | awk -F: '$1 == "yes" { print $2; exit }')
+    bt_on && bt=$(bluetoothctl devices Connected | awk '{ $1 = $2 = ""; sub(/^  /, ""); print }' | paste -sd, -) || bt=off
+    printf '󰕾 %s  ·  󰤨 %s  ·  󰂯 %s' "${sink:-?}" "${wifi:-—}" "${bt:-on}"
+}
+
+case "${1:-}" in
+    "")     menu_actions "  $(t système system)" "$(status_line)" ;;
+    run)    shift; run_action "$@" ;;
+    --list) list_actions ;;
+    *)      sed -n '3,5p' "$0" | sed 's/^#  \{0,1\}//'; exit 1 ;;
+esac

@@ -46,18 +46,24 @@ action "Projet · Ouvrir / rejoindre un projet ‖ Project · Open / switch to a
 action "Git · Menu git du dossier courant ‖ Git · Git menu for current directory"      cmd  "desk git"
 action "Docker · Conteneurs ‖ Docker · Containers"                                     cmd  "desk docker"
 action "Ports · Ports en écoute et processus ‖ Ports · Listening ports and processes"  cmd  "desk ports"
+action "Processus · Par CPU / RAM (tuer, inspecter…) ‖ Processes · By CPU / RAM (kill, inspect…)" cmd "desk procs"
 action "SSH · Se connecter à un hôte ‖ SSH · Connect to a host"                        cmd  "desk ssh"
 action "Web · Recherche (gh mdn npm aur so…) ‖ Web · Search (gh mdn npm aur so…)"      cmd  "desk web"
 action "Mobile · scrcpy / émulateur / adb ‖ Mobile · scrcpy / emulator / adb"          cmd  "desk mobile"
 action "IA · Claude sur le presse-papier (expliquer, corriger, tests…) ‖ AI · Claude on clipboard (explain, fix, tests…)" cmd "desk ai"
+action "Système · Audio, Wi-Fi, Bluetooth, VPN, session ‖ System · Audio, Wi-Fi, Bluetooth, VPN, session" cmd "desk system"
+action "Notes · Notes et TODO (~/notes) ‖ Notes · Notes and TODOs (~/notes)"              cmd "desk notes"
+action "Focus · Minuteur, pomodoro, mode focus ‖ Focus · Timer, pomodoro, focus mode"      cmd "desk focus"
 action "Capture · Menu captures (OCR, annotation, vidéo…) ‖ Screenshot · Capture menu (OCR, annotate, video…)" cmd "desk capture"
 # sous-actions de chaque module, lues dans les scripts (desk-<module> --list)
-for mod in project git docker ports mobile capture ai; do
+for mod in project git docker ports procs mobile capture ai system notes focus; do
     while IFS=$'\t' read -r id label; do
         case "$mod:$id" in
-            project:pick|docker:containers|ports:ports) continue ;;                 # = menus ci-dessus
+            project:pick|docker:containers|ports:ports|procs:cpu) continue ;;       # = menus ci-dessus
             capture:region-clip|capture:screen-clip|capture:region-file|capture:window-file|capture:screen-file|capture:picker)
                 continue ;;                                                         # = tes binds, listés plus bas
+            system:mic|system:dnd|system:night|system:lock|system:power|system:reload|notes:scratch|notes:quick)
+                continue ;;                                                         # idem
         esac
         action "$label" cmd "desk $mod run $id"
     done < <("$DESK_DIR/desk-$mod" --list)
@@ -91,7 +97,7 @@ action "Barre · Cacher/afficher ‖ Bar · Hide / show"                        
 action "Layout · Mode jeu (sans effets) on/off ‖ Layout · Game mode (no effects) on/off" bind "Layout · Mode jeu (sans effets) on/off"
 action "Fenêtre · Voir les fenêtres cachées ‖ Window · Show hidden windows"            bind "Fenêtre · Voir les fenêtres cachées"
 action "Session · Recharger Hyprland (avec notification) ‖ Session · Reload Hyprland (with notification)" \
-    cmd "hyprctl reload >/dev/null && ~/.config/hypr/scripts/wm.sh reapply; pkill -SIGUSR2 waybar; e=\$(hyprctl configerrors | grep -v '^\s*\$' || true); if [[ -z \$e ]]; then notify-send -a desk -u low -i view-refresh-symbolic \"\$(desk_t 'Config rechargée' 'Config reloaded')\" \"\$(desk_t 'Aucune erreur' 'No errors')\"; else notify-send -a desk -u critical -i dialog-error-symbolic \"\$(desk_t 'Config rechargée avec erreurs' 'Config reloaded with errors')\" \"\$e\"; fi" \
+    cmd "desk system run reload" \
     "Session · Recharger Hyprland et la barre"
 action "Session · Verrouiller ‖ Session · Lock screen"                                 bind "Session · Verrouiller"
 action "Session · Menu alimentation ‖ Session · Power menu"                            bind "Session · Menu alimentation"

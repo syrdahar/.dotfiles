@@ -1,0 +1,93 @@
+#!/usr/bin/env bash
+# ──────────────────────────────────────────────────────────────
+#  desk notes — capture rapide dans ~/notes
+#   desk notes              menu
+#   desk notes note "…"     note horodatée → ~/notes/inbox.md
+#   desk notes todo "…"     TODO → ~/notes/todo.md
+#   desk notes run <id>     action directe (voir --list)
+#  Formats :  inbox.md  « - 2026-09-27 14:03 · texte »
+#             todo.md   « - [ ] texte  (2026-09-27) »  → cocher = « - [x] »
+#  Ton scratchpad (SUPER+A) et ta note rapide (SUPER+SHIFT+A) restent inchangés.
+# ──────────────────────────────────────────────────────────────
+source "$(dirname "$(readlink -f "$0")")/lib.sh"
+DESK_NAME=notes
+DIR=${DESK_NOTES_DIR:-$HOME/notes}
+INBOX=$DIR/inbox.md
+TODO=$DIR/todo.md
+
+ACTIONS=(
+    "note|Notes · Note horodatée (inbox) ‖ Notes · Timestamped note (inbox)"
+    "todo|Notes · Ajouter un TODO ‖ Notes · Add a TODO"
+    "todos|Notes · Voir / cocher les TODO ‖ Notes · View / check off TODOs"
+    "clean|Notes · Retirer les TODO faits ‖ Notes · Remove completed TODOs"
+    "open-inbox|Notes · Ouvrir l'inbox ‖ Notes · Open inbox"
+    "open-todo|Notes · Ouvrir la liste TODO ‖ Notes · Open TODO list"
+    "scratch|Notes · Scratchpad (nvim) ‖ Notes · Scratchpad (nvim)"
+    "quick|Notes · Note rapide (scratchpad) ‖ Notes · Quick note (scratchpad)"
+)
+
+ensure() {   # ensure fichier titre
+    mkdir -p "$DIR"
+    [[ -f $1 ]] || printf '# %s\n\n' "$2" >"$1"
+    [[ $(tail -c1 "$1" | wc -l) -eq 1 ]] || echo >>"$1"      # finit par un saut de ligne
+}
+
+ask() {   # ask "prompt" "message" → texte saisi (vide = annuler)
+    local s; s=$(menu "$1" -l 0 -mesg "$2" -theme-str 'window { width: 560px; }' </dev/null) || exit 0
+    [[ -n ${s// } ]] || exit 0
+    printf '%s' "$s"
+}
+
+add_note() {
+    ensure "$INBOX" Inbox
+    printf -- '- %s · %s\n' "$(date '+%Y-%m-%d %H:%M')" "$1" >>"$INBOX"
+    notify -u low -i document-edit-symbolic "$(t "Note ajoutée" "Note added")" "$1"
+}
+add_todo() {
+    ensure "$TODO" TODO
+    printf -- '- [ ] %s  (%s)\n' "$1" "$(date +%Y-%m-%d)" >>"$TODO"
+    notify -u low -i checkbox-symbolic "$(t "TODO ajouté" "TODO added")" "$1"
+}
+
+a_note() { add_note "$(ask "󰏫  note" "$(t "Note horodatée → $(tilde "$INBOX")" "Timestamped note → $(tilde "$INBOX")")")"; }
+a_todo() { add_todo "$(ask "  todo" "$(t "Nouveau TODO → $(tilde "$TODO")" "New TODO → $(tilde "$TODO")")")"; }
+
+a_todos() {
+    ensure "$TODO" TODO
+    local rows idx line n
+    # « numéro de ligne <TAB> état <TAB> texte », non faits d'abord
+    rows=$(grep -nE '^- \[( |x|X)\] ' "$TODO" | sed -E 's/^([0-9]+):- \[(.)\] (.*)$/\1\t\2\t\3/' | sort -t$'\t' -k2,2 -s || true)
+    [[ -n $rows ]] || die "$(t "Aucun TODO" "No TODO") ($(tilde "$TODO"))"
+    n=$(grep -c $'\t \t' <<<"$rows" || true)
+    idx=$(awk -F'\t' '{ printf "%s %s\n", ($2 == " " ? "☐" : "☑"), $3 }' <<<"$rows" |
+          menu "  todo" -format i -mesg "$n $(t "à faire · Entrée : cocher / décocher" "open · Enter: check / uncheck")") || exit 0
+    [[ -n $idx ]] || exit 0
+    IFS=$'\t' read -r line st text < <(sed -n "$((idx + 1))p" <<<"$rows")
+    if [[ $st == " " ]]; then sed -i "${line}s/^- \[ \]/- [x]/" "$TODO"; notify -u low -i checkbox-checked-symbolic "$(t "Fait" "Done")" "$text"
+    else sed -i "${line}s/^- \[[xX]\]/- [ ]/" "$TODO"; notify -u low -i checkbox-symbolic "$(t "Rouvert" "Reopened")" "$text"; fi
+}
+a_clean() {
+    ensure "$TODO" TODO
+    local n; n=$(grep -cE '^- \[[xX]\] ' "$TODO" || true)
+    (( n > 0 )) || { notify -u low "$(t "Aucun TODO fait à retirer" "No completed TODO to remove")"; exit 0; }
+    confirm "$(t "Retirer $n TODO fait(s) ?" "Remove $n completed TODO(s)?")" || exit 0
+    # archivés en bas de l'inbox plutôt que perdus
+    ensure "$INBOX" Inbox
+    grep -E '^- \[[xX]\] ' "$TODO" | sed "s/^/- $(date '+%Y-%m-%d %H:%M') · $(t "fait" "done") : /; s/: - \[[xX]\] /: /" >>"$INBOX"
+    sed -i -E '/^- \[[xX]\] /d' "$TODO"
+    notify -u low -i edit-clear-symbolic "$(t "$n TODO archivé(s) dans l'inbox" "$n TODO(s) archived to inbox")"
+}
+a_open_inbox() { ensure "$INBOX" Inbox; float_run "inbox" "$DIR" nvim + "$INBOX"; }
+a_open_todo()  { ensure "$TODO" TODO;   float_run "todo"  "$DIR" nvim + "$TODO"; }
+a_scratch()    { run_bind "Notes · Ouvrir/cacher le scratchpad"; }
+a_quick()      { run_bind "Notes · Ajouter une ligne rapide"; }
+
+case "${1:-}" in
+    "")     n=$(grep -cE '^- \[ \] ' "$TODO" 2>/dev/null || true)
+            menu_actions "󰠮  notes" "$(tilde "$DIR") · ${n:-0} TODO $(t "à faire" open)" ;;
+    note)   shift; [[ -n ${*// } ]] && add_note "$*" || a_note ;;
+    todo)   shift; [[ -n ${*// } ]] && add_todo "$*" || a_todo ;;
+    run)    shift; run_action "$@" ;;
+    --list) list_actions ;;
+    *)      sed -n '3,7p' "$0" | sed 's/^#  \{0,1\}//'; exit 1 ;;
+esac

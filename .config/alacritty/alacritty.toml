@@ -30,3 +30,7 @@ size = 8.0
 key = "Return"
 mods = "Shift"
 chars = "\u001B\r"
+
+# Sélectionner du texte le copie directement dans le presse-papier (comme dans Claude Code)
+[selection]
+save_to_clipboard = true

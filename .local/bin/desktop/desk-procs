@@ -1,0 +1,168 @@
+#!/usr/bin/env bash
+# ──────────────────────────────────────────────────────────────
+#  desk procs — processus triés par CPU ou RAM, pour tuer / inspecter
+#   desk procs               menu rofi
+#                              Alt+c tri CPU · Alt+r tri RAM · Alt+g regrouper par appli
+#   desk procs --print [cpu|ram] [proc|app]   liste sans rofi
+#   desk procs --list        actions pour la palette
+#  CPU = usage instantané (deux lectures de /proc à 0,4 s), pas la moyenne de ps.
+#  Actions : SIGTERM, SIGKILL, tuer toute l'appli, terminal dans le dossier,
+#  copier le PID, détails (ports ouverts, mémoire…).
+# ──────────────────────────────────────────────────────────────
+source "$(dirname "$(readlink -f "$0")")/lib.sh"
+DESK_NAME=procs
+
+ACTIONS=(
+    "cpu|Processus · Par CPU (tuer, inspecter…) ‖ Processes · By CPU (kill, inspect…)"
+    "ram|Processus · Par RAM (tuer, inspecter…) ‖ Processes · By RAM (kill, inspect…)"
+    "apps|Processus · Applis groupées par RAM ‖ Processes · Apps grouped by RAM"
+)
+
+# sample <cpu|ram> <proc|app> → TSV : pids(,)  user  cpu%  rss_octets  nom  nb  dossier  commande
+sample() {
+    python3 - "$1" "$2" <<'PY'
+import os, sys, time, pwd
+sort, group = sys.argv[1], sys.argv[2]
+tck, page = os.sysconf("SC_CLK_TCK"), os.sysconf("SC_PAGE_SIZE")
+me = os.getpid(); parent = os.getppid()
+def ticks():   # temps CPU cumulé en secondes (schedstat : ns, précis ; sinon stat : ticks)
+    d = {}
+    for p in os.listdir("/proc"):
+        if not p.isdigit(): continue
+        try:
+            d[int(p)] = int(open(f"/proc/{p}/schedstat").read().split()[0]) / 1e9
+        except Exception:
+            try:
+                s = open(f"/proc/{p}/stat").read()
+                f = s[s.rindex(")") + 2:].split()
+                d[int(p)] = (int(f[11]) + int(f[12])) / tck
+            except Exception: pass
+    return d
+a = ticks(); t0 = time.monotonic(); time.sleep(0.4); b = ticks(); dt = time.monotonic() - t0
+rows = []
+for pid, tb in b.items():
+    if pid in (me, parent): continue
+    try:
+        st = open(f"/proc/{pid}/stat").read()
+        name = st[st.index("(") + 1:st.rindex(")")]
+        rss = int(open(f"/proc/{pid}/statm").read().split()[1]) * page
+        uid = os.stat(f"/proc/{pid}").st_uid
+        cmd = open(f"/proc/{pid}/cmdline", "rb").read().replace(b"\0", b" ").decode(errors="replace").strip() or f"[{name}]"
+        try: cwd = os.readlink(f"/proc/{pid}/cwd")
+        except Exception: cwd = ""
+    except Exception: continue
+    if rss == 0 and not cmd.startswith("["): pass
+    if cmd.startswith("[") and rss == 0: continue                 # threads noyau
+    try: user = pwd.getpwuid(uid).pw_name
+    except Exception: user = str(uid)
+    cpu = (tb - a.get(pid, tb)) / dt * 100
+    if group == "app":   # regroupement par exécutable (librewolf + « Isolated Web Co »… = librewolf)
+        try: name = os.path.basename(os.readlink(f"/proc/{pid}/exe")).removesuffix(" (deleted)")
+        except Exception: pass
+    rows.append([str(pid), user, cpu, rss, name, 1, cwd, cmd])
+if group == "app":
+    g = {}
+    for r in rows:
+        k = (r[4], r[1])
+        if k in g:
+            x = g[k]; x[0] += "," + r[0]; x[2] += r[2]; x[3] += r[3]; x[5] += 1
+        else: g[k] = r[:]
+    rows = list(g.values())
+rows.sort(key=lambda r: r[2] if sort == "cpu" else r[3], reverse=True)
+for r in rows[:300]:
+    print("\t".join([r[0], r[1], f"{r[2]:.1f}", str(r[3]), r[4], str(r[5]), r[6], r[7][:200]]))
+PY
+}
+
+human() { numfmt --to=iec --suffix=B --format='%.1f' "$1" 2>/dev/null || echo "$1"; }
+
+fmt() {   # affichage aligné ; l'autre langue n'a pas de sens ici (données brutes)
+    while IFS=$'\t' read -r pids user cpu rss name n cwd cmd; do
+        local who; [[ $n -gt 1 ]] && who="×$n" || who=$pids
+        [[ $user != "$USER" ]] && who="$who·$user"
+        printf '%5s%%  %8s  %-18.18s %-14.14s %s\n' "$cpu" "$(human "$rss")" "$name" "$who" "${cmd:0:70}"
+    done
+}
+
+kill_pids() {   # kill_pids SIG "pid,pid…" "libellé"
+    local sig=$1 label=$3 ok=0 ko=0 p
+    for p in ${2//,/ }; do if kill "-$sig" "$p" 2>/dev/null; then ok=$((ok + 1)); else ko=$((ko + 1)); fi; done
+    if (( ko > 0 && ok == 0 )); then
+        die "$(t "Impossible de tuer" "Could not kill") $label ($(t "autre utilisateur ? → sudo kill" "another user? → sudo kill") ${2//,/ })"
+    fi
+    local msg="$ok $(t "processus arrêté(s)" "process(es) signalled")"
+    (( ko > 0 )) && msg+=" · $ko $(t "échec(s)" failed)"
+    notify -u low -i process-stop-symbolic "$label · SIG$sig" "$msg"
+}
+
+details() {   # details "pid,pid…"
+    local pids=${1//,/ } p first=${1%%,*}
+    float_pager "$(t "détails" "details") · $first" "$HOME" "
+        ps -o pid,user,%cpu,%mem,rss,etime,stat,cmd -p '${pids// /,}' --sort=-rss
+        echo; echo '── $(t "ports en écoute" "listening ports") ──'
+        ss -Hltnp 2>/dev/null | command grep -E 'pid=(${pids// /|})\b' || echo '  —'
+        echo; echo '── /proc/$first/status ──'
+        command grep -E '^(Name|State|PPid|Threads|VmRSS|VmSwap|voluntary)' /proc/$first/status
+        echo; echo 'cwd: '\$(readlink /proc/$first/cwd)
+    "
+}
+
+act_on() {   # act_on "ligne TSV"
+    local pids user cpu rss name n cwd cmd
+    IFS=$'\t' read -r pids user cpu rss name n cwd cmd <<<"$1"
+    local label="$name"; [[ $n -gt 1 ]] && label="$name ×$n"
+    local -a acts=("term|Tuer (SIGTERM) ‖ Kill (SIGTERM)" "kill|Tuer de force (SIGKILL) ‖ Force kill (SIGKILL)")
+    if [[ $n -eq 1 ]]; then
+        local same; same=$(pgrep -u "$user" -x "$name" | paste -sd, -)
+        [[ $same == *,* ]] && acts+=("all|Tuer tous les « $name » ($(tr , '\n' <<<"$same" | wc -l)) ‖ Kill all “$name” ($(tr , '\n' <<<"$same" | wc -l))")
+        [[ -n $cwd && -d $cwd ]] && acts+=("shell|Terminal dans $(tilde "$cwd") ‖ Terminal in $(tilde "$cwd")")
+        acts+=("copy|Copier le PID ‖ Copy PID")
+    fi
+    acts+=("details|Détails (mémoire, ports, état) ‖ Details (memory, ports, state)")
+    local i; i=$(for a in "${acts[@]}"; do bi_row "${a#*|}"; done |
+        menu "󰍛  $label" -format i -mesg "CPU $cpu% · RAM $(human "$rss") · $user · ${cmd:0:90}") || exit 0
+    [[ -n $i ]] || exit 0
+    case ${acts[$i]%%|*} in
+        term)    kill_pids TERM "$pids" "$label" ;;
+        kill)    kill_pids KILL "$pids" "$label" ;;
+        all)     confirm "$(t "Tuer tous les « $name » ?" "Kill all “$name”?")" && kill_pids TERM "$same" "$name" ;;
+        shell)   term_run "$name · $(basename "$cwd")" "$cwd" "${SHELL:-zsh}" ;;
+        copy)    clip_set "$pids"; notify -u low -i edit-copy-symbolic "$(t "PID copié" "PID copied")" "$pids · $name" ;;
+        details) details "$pids" ;;
+    esac
+}
+
+browse() {   # browse <cpu|ram> <proc|app>
+    local sort=$1 group=$2 rows idx rc
+    while :; do
+        rows=$(sample "$sort" "$group")
+        local mem; mem=$(free -h | awk '/^Mem/ { print $3 " / " $2 }')
+        local s_lbl g_lbl
+        s_lbl=$([[ $sort == cpu ]] && echo CPU || echo RAM)
+        g_lbl=$([[ $group == app ]] && t "par appli" "by app" || t "par processus" "by process")
+        set +e
+        idx=$(fmt <<<"$rows" | menu "󰍛  $(t processus processes)" -format i -no-custom \
+                -kb-custom-1 "Alt+c" -kb-custom-2 "Alt+r" -kb-custom-3 "Alt+g" \
+                -mesg "$(t "Tri" "Sort"): <b>$s_lbl</b> · $g_lbl · RAM $mem   —   Alt+c CPU · Alt+r RAM · Alt+g $(t "grouper/dégrouper" "group/ungroup")")
+        rc=$?; set -e
+        case $rc in
+            0)  [[ -n $idx ]] && act_on "$(sed -n "$((idx + 1))p" <<<"$rows")"; return ;;
+            10) sort=cpu ;;
+            11) sort=ram ;;
+            12) [[ $group == app ]] && group=proc || group=app ;;
+            *)  return ;;
+        esac
+    done
+}
+
+a_cpu()  { browse cpu proc; }
+a_ram()  { browse ram proc; }
+a_apps() { browse ram app; }
+
+case "${1:-}" in
+    "")      browse cpu proc ;;
+    run)     shift; run_action "$@" ;;
+    --list)  list_actions ;;
+    --print) sample "${2:-cpu}" "${3:-proc}" | fmt | head -"${4:-15}" || true ;;
+    *)       sed -n '3,8p' "$0" | sed 's/^#  \{0,1\}//'; exit 1 ;;
+esac

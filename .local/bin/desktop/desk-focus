@@ -1,0 +1,141 @@
+#!/usr/bin/env bash
+# ──────────────────────────────────────────────────────────────
+#  desk focus — minuteur, pomodoro, mode focus
+#   desk focus                 menu (temps restant dans l'en-tête)
+#   desk focus timer <durée>   minuteur : 25 · 25m · 1h30 · 90s · 1:30
+#   desk focus pomodoro        25 min travail / 5 min pause ×4, puis 15 min
+#   desk focus stop            arrête le minuteur / pomodoro
+#   desk focus status          temps restant (CLI)
+#   desk focus toggle          mode focus on/off
+#  Mode focus : ne pas déranger (swaync) + barre cachée (+ pomodoro si choisi).
+#  Fin de minuteur : notification critique + son (audible même en ne pas déranger).
+# ──────────────────────────────────────────────────────────────
+source "$(dirname "$(readlink -f "$0")")/lib.sh"
+DESK_NAME=focus
+ST=$DESK_STATE/timer          # pid · end (epoch) · label
+FOCUS=$DESK_STATE/focus       # présent = mode focus actif (contient « bar » si on a caché la barre)
+SOUND=${DESK_TIMER_SOUND:-/usr/share/sounds/freedesktop/stereo/alarm-clock-elapsed.oga}
+
+ACTIONS=(
+    "pomodoro|Focus · Pomodoro (25 / 5 min) ‖ Focus · Pomodoro (25 / 5 min)"
+    "timer|Focus · Minuteur… ‖ Focus · Timer…"
+    "stop|Focus · Arrêter le minuteur ‖ Focus · Stop timer"
+    "toggle|Focus · Mode focus on/off (ne pas déranger + barre cachée) ‖ Focus · Focus mode on/off (do not disturb + hidden bar)"
+)
+
+running() { [[ -f $ST ]] && kill -0 "$(sed -n 1p "$ST")" 2>/dev/null; }
+remaining() {   # « 12:34 · libellé »
+    running || return 1
+    local end label left; end=$(sed -n 2p "$ST"); label=$(sed -n 3p "$ST")
+    left=$(( end - $(date +%s) )); (( left < 0 )) && left=0
+    printf '%d:%02d · %s' $((left / 60)) $((left % 60)) "$label"
+}
+
+parse_duration() {   # → secondes ; « 25 » = minutes
+    python3 - "$1" <<'PY'
+import re,sys
+s=sys.argv[1].strip().lower().replace(" ","")
+if re.fullmatch(r"0*", s): sys.exit(1)
+if re.fullmatch(r"\d+", s): print(int(s)*60); sys.exit()
+m=re.fullmatch(r"(\d+)h(\d+)", s)                     # 1h30 = 1 h 30 min
+if m: print(int(m[1])*3600+int(m[2])*60); sys.exit()
+m=re.fullmatch(r"(\d+):(\d{1,2})", s)
+if m: print(int(m[1])*60+int(m[2])); sys.exit()
+tot=0; rest=re.sub(r"(\d+)\s*(h|min|mn|m|s)", lambda m: "", s)
+if rest: sys.exit(1)
+for n,u in re.findall(r"(\d+)(h|min|mn|m|s)", s):
+    tot+=int(n)*{"h":3600,"min":60,"mn":60,"m":60,"s":1}[u]
+if tot==0: sys.exit(1)
+print(tot)
+PY
+}
+
+ring() {   # ring "titre" "corps"
+    notify -u critical -i alarm-symbolic "$1" "$2"
+    [[ -f $SOUND ]] && { pw-play "$SOUND" 2>/dev/null || paplay "$SOUND" 2>/dev/null || true; } &
+}
+
+# Tourne en arrière-plan (setsid) : une ou plusieurs phases « secondes|libellé|message de fin »
+_runner() {
+    trap - ERR
+    local phase secs label msg
+    for phase in "$@"; do
+        IFS='|' read -r secs label msg <<<"$phase"
+        printf '%s\n%s\n%s\n' "$$" "$(( $(date +%s) + secs ))" "$label" >"$ST"
+        sleep "$secs"
+        ring "$label · $(t terminé done)" "$msg"
+    done
+    rm -f "$ST"
+}
+
+start_phases() {   # start_phases "label de notif" phase…
+    running && kill "$(sed -n 1p "$ST")" 2>/dev/null || true
+    setsid -f "$0" _runner "${@:2}" >/dev/null 2>&1
+    sleep 0.2
+    notify -u low -i alarm-symbolic "$1" "$(remaining || true)"
+}
+
+a_timer() {
+    local d="${1:-}" secs
+    if [[ -z $d ]]; then
+        d=$(printf '%s\n' 5 10 15 25 45 60 | menu "󰔛  $(t minuteur timer)" -format f \
+              -mesg "$(t "Minutes, ou 1h30 · 90s · 1:30 — tape puis Entrée" "Minutes, or 1h30 · 90s · 1:30 — type then Enter")") || exit 0
+        [[ -n ${d// } ]] || exit 0
+    fi
+    secs=$(parse_duration "$d") || die "$(t "Durée invalide" "Invalid duration") : $d"
+    local h=$(( secs / 3600 )) m=$(( secs % 3600 / 60 )) sec=$(( secs % 60 )) dur=""
+    (( h )) && dur+="${h}h"; (( m )) && dur+="${m}min"; (( sec )) && dur+="${sec}s"
+    local label="$(t Minuteur Timer) $dur"
+    start_phases "$label" "$secs|$label|$(t "Le temps est écoulé" "Time is up")"
+}
+
+a_pomodoro() {
+    local w=$((25 * 60)) b=$((5 * 60)) lb=$((15 * 60)) work pause
+    work=$(t "Pomodoro · travail" "Pomodoro · work"); pause=$(t "Pomodoro · pause" "Pomodoro · break")
+    local -a p=()
+    for i in 1 2 3 4; do
+        p+=("$w|$work $i/4|$(t "Pause de 5 minutes" "Take a 5 minute break")")
+        (( i < 4 )) && p+=("$b|$pause $i/4|$(t "On reprend : 25 minutes de travail" "Back to work: 25 minutes")")
+    done
+    p+=("$lb|$(t "Pomodoro · grande pause" "Pomodoro · long break")|$(t "Cycle terminé 🎉" "Cycle complete 🎉")")
+    start_phases "$(t "Pomodoro lancé" "Pomodoro started")" "${p[@]}"
+}
+
+a_stop() {
+    if running; then kill "$(sed -n 1p "$ST")" 2>/dev/null || true; rm -f "$ST"
+        notify -u low -i alarm-symbolic "$(t "Minuteur arrêté" "Timer stopped")"
+    else notify -u low "$(t "Aucun minuteur en cours" "No timer running")"; fi
+}
+
+a_toggle() {
+    if [[ -f $FOCUS ]]; then
+        swaync-client -df >/dev/null 2>&1 || true
+        grep -q bar "$FOCUS" && pkill -SIGUSR1 -x waybar || true
+        grep -q pomo "$FOCUS" && running && a_stop >/dev/null
+        rm -f "$FOCUS"
+        notify -u low -i weather-clear-symbolic "$(t "Mode focus désactivé" "Focus mode off")"
+    else
+        local pomo
+        pomo=$(for l in "Sans minuteur ‖ No timer" "Avec pomodoro (25 / 5) ‖ With pomodoro (25 / 5)"; do bi_row "$l"; done |
+               menu "󰀘  focus" -format i) || exit 0
+        notify -u low -i weather-clear-night-symbolic "$(t "Mode focus activé" "Focus mode on")" "$(t "Notifications en sourdine · barre cachée" "Notifications muted · bar hidden")"
+        sleep 1.2
+        echo "bar" >"$FOCUS"
+        swaync-client -dn >/dev/null 2>&1 || true
+        pkill -SIGUSR1 -x waybar || true
+        [[ $pomo == 1 ]] && { echo pomo >>"$FOCUS"; a_pomodoro; }
+    fi
+}
+
+case "${1:-}" in
+    "")       menu_actions "󰀘  focus" "$(remaining || t "Aucun minuteur" "No timer")$( [[ -f $FOCUS ]] && echo " · $(t "mode focus actif" "focus mode on")")" ;;
+    timer)    a_timer "${2:-}" ;;
+    pomodoro) a_pomodoro ;;
+    stop)     a_stop ;;
+    toggle)   a_toggle ;;
+    status)   remaining && echo || { t "aucun minuteur" "no timer"; echo; } ;;
+    _runner)  shift; _runner "$@" ;;
+    run)      shift; run_action "$@" ;;
+    --list)   list_actions ;;
+    *)        sed -n '3,11p' "$0" | sed 's/^#  \{0,1\}//'; exit 1 ;;
+esac
