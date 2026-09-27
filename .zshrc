@@ -113,3 +113,10 @@ export PATH="/home/dorian/.local/bin:$PATH"
 # <<< Codex installer <<<
 source ~/.config/cc-providers/keys.env
 alias ccq='claude --bare --settings ~/.config/cc-providers/qwen.json'
+
+autoload -Uz add-zsh-hook
+_auto_l() { [[ -o interactive ]] && l }
+add-zsh-hook chpwd _auto_l
+
+# zoxide : remplace cd (cdi = sélection interactive via fzf)
+eval "$(zoxide init zsh --cmd cd)"
