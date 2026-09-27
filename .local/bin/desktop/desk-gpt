@@ -1,0 +1,209 @@
+#!/usr/bin/env bash
+# ──────────────────────────────────────────────────────────────
+#  desk gpt — questions rapides à ChatGPT (compte ChatGPT, via « codex exec »)
+#   desk gpt                boucle rofi : question → réponse affichée + copiée, on enchaîne
+#                           (les questions suivantes gardent le fil de la conversation)
+#   desk gpt "<question>"   réponse en CLI (stdout)
+#   « ?question »           active la recherche web (météo, actu, cours…) : plus lent
+#  Dans rofi : Alt+Entrée = conversation complète (glow) · Alt+n = nouvelle conversation.
+#
+#  Sécurité : codex tourne sans shell ni exec, sans MCP / plugins / apps / navigateur /
+#  sous-agents, en sandbox lecture seule, depuis un dossier vide, sans config utilisateur
+#  (--ignore-user-config) ni session enregistrée (--ephemeral). La question passe par
+#  mask_secrets puis par stdin (jamais en argument visible dans ps).
+#  La conversation n'existe qu'en mémoire : rofi fermé = conversation oubliée.
+#  Réglages (desk.conf) : DESK_GPT_MODEL, DESK_GPT_EFFORT, DESK_GPT_TIMEOUT, DESK_GPT_CONTEXT.
+# ──────────────────────────────────────────────────────────────
+source "$(dirname "$(readlink -f "$0")")/lib.sh"
+DESK_NAME=gpt
+MODEL=${DESK_GPT_MODEL:-}                   # vide = modèle par défaut de Codex
+EFFORT=${DESK_GPT_EFFORT:-none}             # none = le plus rapide (« minimal » renvoie une réponse vide)
+TIMEOUT=${DESK_GPT_TIMEOUT:-45}
+CONTEXT=${DESK_GPT_CONTEXT:-"the user lives in France (metric units, euros, 24-hour clock)"}
+MAX_TURNS=6                                 # échanges précédents renvoyés comme contexte
+MAX_SHOWN=700                               # caractères affichés dans rofi (le reste : Alt+Entrée)
+SYNC=string:x-canonical-private-synchronous:desk-gpt
+
+# Tout ce que codex sait faire à part répondre : coupé. code_mode_host n'est laissé
+# qu'en mode web (« ?… ») : la recherche web de codex passe par lui.
+OFF_FEATURES=(shell_tool unified_exec shell_snapshot apps plugins remote_plugin
+    browser_use browser_use_external in_app_browser in_app_chat in_app_local_automation
+    computer_use image_generation view_image multi_agent multi_agent_v2 collaboration_modes
+    goals hooks skill_search skill_mcp_dependency_install tool_suggest tool_call_mcp_elicitation
+    auth_elicitation sleep_tool personality workspace_dependencies)
+
+HQ=() HA=()          # conversation en cours (questions / réponses), en mémoire seulement
+WD=""
+
+cleanup() { [[ -n $WD ]] && rm -rf "$WD"; }
+
+setup() {
+    command -v codex >/dev/null || die "$(t "codex (Codex CLI) n'est pas installé" "codex (Codex CLI) is not installed")"
+    [[ -f ${CODEX_HOME:-$HOME/.codex}/auth.json ]] || die "$(t "codex n'est pas connecté : lance « codex login » (compte ChatGPT)" "codex is not logged in: run “codex login” (ChatGPT account)")"
+    umask 077
+    WD=$(mktemp -d "$DESK_RUN/gpt.XXXXXX")  # dossier vide, en RAM, lisible par toi seul
+    trap cleanup EXIT
+}
+
+instructions() {   # instructions <web 0|1>
+    cat <<EOF
+You answer quick everyday questions typed into a desktop launcher: calculations, unit and currency conversions, definitions, facts, short how-tos.
+- Reply in the language of the question.
+- Plain text only: no markdown, no LaTeX, no code fences, no links, no preamble.
+- Give the result first, as short as possible (e.g. "397,80"), then at most one or two short lines if context really helps.
+Context: today is $(LC_ALL=C date '+%A %-d %B %Y, %H:%M %Z'); $CONTEXT, unless the question says otherwise.
+EOF
+    if (( $1 )); then
+        echo "- Use web search for current information; mention in a few words the date or source of the figure."
+    else
+        echo "- You have no tools and no internet access: if the answer depends on live data, say so in one line."
+    fi
+}
+
+prompt_text() {   # prompt_text <question> → transcript des échanges précédents + question
+    local q=$1 i n=${#HQ[@]} from=0
+    (( n > MAX_TURNS )) && from=$(( n - MAX_TURNS ))
+    if (( n > 0 )); then
+        echo "Previous exchanges (context only):"
+        for (( i = from; i < n; i++ )); do printf 'Q: %s\nA: %s\n\n' "${HQ[$i]}" "${HA[$i]}"; done
+        echo "New question:"
+    fi
+    printf '%s\n' "$q"
+}
+
+# ask <question déjà masquée> <web 0|1>  →  ANSWER (succès) ou ERROR (échec, code 1)
+ANSWER="" ERROR=""
+ask() {
+    local q=$1 web=$2 rc=0 f
+    ANSWER="" ERROR=""
+    instructions "$web" >"$WD/instructions.md"
+    local args=(exec --ephemeral --skip-git-repo-check --ignore-rules --ignore-user-config
+        -s read-only -C "$WD" --json
+        -c 'approval_policy="never"'
+        -c "model_instructions_file=\"$WD/instructions.md\""
+        -c "model_reasoning_effort=\"$EFFORT\"")
+    for f in "${OFF_FEATURES[@]}"; do args+=(--disable "$f"); done
+    if (( web )); then args+=(-c 'web_search="live"')
+    else args+=(-c 'web_search="disabled"' --disable code_mode_host); fi
+    [[ -n $MODEL ]] && args+=(-m "$MODEL")
+
+    prompt_text "$q" | timeout "$TIMEOUT" codex "${args[@]}" - >"$WD/out.jsonl" 2>"$WD/err.log" || rc=$?
+
+    # dernière réponse du modèle (il peut annoncer « je vérifie… » avant la vraie réponse)
+    ANSWER=$(jq -rs '[.[] | select(.type == "item.completed" and .item.type == "agent_message") | .item.text] | last // empty' \
+        "$WD/out.jsonl" 2>/dev/null | sed -E 's/\*\*//g; s/`//g; s/[[:space:]]+$//' || true)
+    [[ -n $ANSWER ]] && return 0
+
+    if (( rc == 124 )); then
+        ERROR=$(t "Pas de réponse après ${TIMEOUT} s" "No answer after ${TIMEOUT} s")
+    else
+        ERROR=$(jq -rs '[.[] | select(.type == "error" or .type == "turn.failed") | (.message // .error.message // "")
+                        | ((fromjson? | .error.message) // .)] | last // empty' "$WD/out.jsonl" 2>/dev/null || true)
+        [[ -n $ERROR ]] || ERROR=$(command grep -v '^Reading additional input' "$WD/err.log" | tail -n1 || true)
+        [[ -n $ERROR ]] || ERROR=$(t "réponse vide" "empty answer")
+        [[ $ERROR == *401* || $ERROR == *nauthorized* || $ERROR == *"log in"* ]] &&
+            ERROR+=" — $(t "relance « codex login »" "run “codex login” again")"
+    fi
+    return 1
+}
+
+# ── Notification « en cours » (rofi est fermé pendant la requête) ──
+busy_on() {   # busy_on <texte>  → id de notification dans BUSY
+    BUSY=""
+    [[ -n ${DESK_TEST:-} ]] && return 0
+    BUSY=$(notify-send -a desk -p -u low -t $(( TIMEOUT * 1000 )) -i chronometer-symbolic -h "$SYNC" \
+        -h boolean:transient:true "ChatGPT" "$1" 2>/dev/null || true)
+}
+busy_off() {
+    [[ -n ${BUSY:-} ]] || return 0
+    gdbus call --session --dest org.freedesktop.Notifications --object-path /org/freedesktop/Notifications \
+        --method org.freedesktop.Notifications.CloseNotification "$BUSY" >/dev/null 2>&1 || true
+}
+
+esc() { sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g'; }
+one_line() { tr '\n' ' ' | sed -E 's/[[:space:]]+/ /g; s/^ //; s/ $//'; }
+shorten() { local s=$1 n=$2; (( ${#s} > n )) && s="${s:0:n}…"; printf '%s' "$s"; }
+
+prepare() {   # prepare <saisie>  → Q (masquée), WEB, MASKED
+    local in=$1
+    WEB=0
+    [[ $in == \?* ]] && { WEB=1; in=${in#\?}; }
+    in=$(sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' <<<"$in")
+    MASKED=$(printf '%s' "$in" | command grep -oP -- "$DESK_SECRET_RE" | wc -l || true)
+    Q=$(printf '%s' "$in" | mask_secrets)
+}
+
+# ── Conversation complète (Alt+Entrée) dans un terminal flottant ──
+open_view() {
+    local i f=$DESK_RUN/gpt-view.md
+    {
+        echo "# ChatGPT"
+        for (( i = 0; i < ${#HQ[@]}; i++ )); do printf '\n## %s\n\n%s\n' "${HQ[$i]}" "${HA[$i]}"; done
+    } >"$f"
+    setsid -f "$DESK_TERMINAL" --class desk-float -T "ChatGPT · conversation" -e "$DESK_DIR/desk-gpt" _view >/dev/null 2>&1
+}
+view() {   # lancé dans le terminal : lit puis efface la copie de la conversation
+    trap - ERR
+    local f=$DESK_RUN/gpt-view.md content
+    content=$(cat "$f" 2>/dev/null || true); rm -f "$f"
+    local hint; hint=$(t "q pour quitter" "q to quit")
+    if command -v glow >/dev/null; then
+        printf '%s\n' "$content" | glow -s dark -w "$(( $(tput cols) - 2 ))" - | less -R -P "  ChatGPT · $hint "
+    else
+        printf '%s\n' "$content" | less -R -P "  ChatGPT · $hint "
+    fi
+}
+
+# ── Boucle rofi ──────────────────────────────────────────────
+loop() {
+    local help input rc mesg rows i res shown
+    help=$(t "Question rapide (calcul, conversion, info…) · « ?… » = recherche web · Alt+Entrée : tout voir · Alt+n : nouvelle conversation" \
+             "Quick question (math, conversion, facts…) · “?…” = web search · Alt+Enter: full view · Alt+n: new conversation")
+    mesg=$help
+    while :; do
+        rows=""
+        for (( i = ${#HQ[@]} - 1; i >= 0; i-- )); do
+            rows+="$(shorten "${HQ[$i]}" 60)  →  $(shorten "$(one_line <<<"${HA[$i]}")" 80)"$'\n'
+        done
+        rc=0
+        # -format f : on récupère toujours ce qui est tapé (pas la ligne d'historique surlignée)
+        input=$(printf '%s' "$rows" | menu "󰭹  chatgpt" -format f -kb-custom-1 "Alt+Return" -kb-custom-2 "Alt+n" \
+                    -mesg "$mesg") || rc=$?
+        case $rc in
+            0)  ;;
+            10) (( ${#HQ[@]} )) && { open_view; exit 0; }
+                mesg=$help; continue ;;
+            11) HQ=() HA=(); mesg="$(t "Nouvelle conversation" "New conversation") · $help"; continue ;;
+            *)  exit 0 ;;
+        esac
+        [[ -n ${input// } ]] || exit 0
+
+        prepare "$input"
+        [[ -n $Q ]] || { mesg=$help; continue; }
+        busy_on "$( (( WEB )) && printf '󰖟 ')$(t "Réflexion…" "Thinking…")  $(shorten "$Q" 80)"
+        if ask "$Q" "$WEB"; then
+            busy_off
+            HQ+=("$Q") HA+=("$ANSWER")
+            clip_set "$ANSWER"
+            shown=$(shorten "$ANSWER" "$MAX_SHOWN")
+            mesg="<b>$(esc <<<"$shown")</b>"
+            (( ${#ANSWER} > MAX_SHOWN )) && mesg+=$'\n'"<i>$(t "… suite : Alt+Entrée" "… more: Alt+Enter")</i>"
+            mesg+="   · $(t copié copied)"
+        else
+            busy_off
+            mesg="<span foreground='#e0485a'>$(t "Échec" "Failed") : $(esc <<<"$(shorten "$ERROR" 300)")</span>"
+        fi
+        (( MASKED > 0 )) && mesg+=$'\n'"<i>$(t "$MASKED secret(s) masqué(s) avant l'envoi" "$MASKED secret(s) redacted before sending")</i>"
+    done
+}
+
+case "${1:-}" in
+    "")        setup; loop ;;
+    _view)     view ;;
+    -h|--help) sed -n '3,16p' "$0" | sed 's/^#  \{0,1\}//' ;;
+    *)         setup; prepare "$*"
+               [[ -n $Q ]] || { echo "usage: desk gpt \"<question>\"" >&2; exit 2; }
+               (( MASKED > 0 )) && echo "$(t "$MASKED secret(s) masqué(s)" "$MASKED secret(s) redacted")" >&2
+               if ask "$Q" "$WEB"; then printf '%s\n' "$ANSWER"
+               else echo "desk gpt: $ERROR" >&2; exit 1; fi ;;
+esac

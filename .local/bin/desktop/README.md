@@ -32,6 +32,7 @@ In the leader, SUPER may stay pressed. Any other key cancels (and is swallowed).
 | `d` | Docker containers & compose stacks | Conteneurs et stacks Docker | `desk docker` |
 | `f` | Proton Drive: browse, download, upload, public link, trash | Proton Drive : parcourir, télécharger, envoyer, lien | `desk drive` |
 | `g` | Git menu for the active terminal's repo | Menu git du dossier courant | `desk git` |
+| `i` | ChatGPT quick question (math, conversion, facts; `?…` = web search) | ChatGPT : question rapide (`?…` = recherche web) | `desk gpt` |
 | `k` | Listening ports (open, curl, kill) | Ports en écoute | `desk ports` |
 | `l` | Toggle French / English | Basculer français / anglais | `desk lang toggle` |
 | `m` | Mobile: scrcpy, emulator, adb reverse, RN dev menu | Mobile : scrcpy, émulateur, adb | `desk mobile` |
@@ -65,6 +66,7 @@ Full, always-up-to-date list: `desk cheatsheet --print` (or `SUPER+Space` `h`).
 | `docker`, `ssh`, `web`, `mobile` | `desk web "npm zod"` · `desk ssh epita` · `desk mobile run reverse` |
 | `capture` | `desk capture run ocr` · `desk capture run record-gif` (again = stop) |
 | `ai` | `desk ai explain` · `desk ai commit` (uses `git diff --staged`) |
+| `gpt` | `desk gpt "17% of 2340"` · `desk gpt "?weather in Lyon"` (web) · rofi: `Alt+Enter` full conversation, `Alt+n` new conversation |
 | `system` | `desk system run sink` · `desk system run wifi` · `desk system run reload` |
 | `notes` | `desk notes note "call the client"` · `desk notes todo "fix login"` |
 | `focus` | `desk focus timer 25` · `desk focus timer 1h30` · `desk focus pomodoro` · `desk focus status` |
@@ -86,7 +88,7 @@ shadow `git`, `docker`, `ssh`…).
 | `~/.config/hypr/desktop-rules.conf` | window rules for `desk-*` classes, satty, scrcpy, emulator |
 | `~/.config/hypr/desktop-autostart.conf` | filtered clipboard watcher |
 | `~/.config/rofi/desk.rasi` | compact theme (imports your `neon.rasi` + active look) |
-| `~/.config/desktop/desk.conf` | settings: `DESK_LANG`, `DESK_BROWSER`, `DESK_TERMINAL`, `DESK_SEARCH_DEFAULT`, `DESK_AI_MODEL` |
+| `~/.config/desktop/desk.conf` | settings: `DESK_LANG`, `DESK_BROWSER`, `DESK_TERMINAL`, `DESK_SEARCH_DEFAULT`, `DESK_AI_MODEL`, `DESK_GPT_MODEL`, `DESK_GPT_EFFORT`, `DESK_GPT_TIMEOUT`, `DESK_GPT_CONTEXT` |
 | `~/.config/desktop/projects.conf` | project root folders (git repos found up to 3 levels deep) |
 | `~/.config/desktop/projects.d/<name>.conf` | optional per-project config: tmux commands, URL, mobile (see `_exemple.conf`) |
 | `~/.local/state/desk/` | language, history (projects, ssh), timer state |
@@ -112,6 +114,13 @@ Backups: `~/.config/hypr.bak-2026-09-27/`, `~/.config/rofi.bak-2026-09-27/`, `al
   `claude -p` runs from an empty directory with no tools, no MCP servers and no
   user settings (hooks, plugins) — it only sees what is sent. It uses your Claude
   subscription (`--bare` is deliberately not used: it disables OAuth).
+- **ChatGPT** (`desk gpt`): uses your ChatGPT account through `codex exec` (Codex CLI,
+  `codex login`). Codex runs with **every tool disabled** (shell, exec, MCP, plugins,
+  apps, browser, computer use, sub-agents…), a read-only sandbox, from an empty
+  directory in `$XDG_RUNTIME_DIR`, with `--ignore-user-config --ignore-rules --ephemeral`
+  (no session saved). The question goes through `mask_secrets` and is sent on stdin
+  (never visible in `ps`). The conversation only lives in memory: closing rofi forgets it.
+  Web mode (`?…`) re-enables only `code_mode_host` (Codex routes web search through it).
 - Wi-Fi passwords are passed to `nmcli` on stdin, never as a visible argument.
 
 ## Adding an action (palette + cheatsheet)
@@ -142,6 +151,8 @@ Testing helpers: `DESK_TEST=1` (notifications to stderr), `DESK_CLIP_IN="…"`
 - Stuck in the leader: `Esc`, or wait 5 s, or `hyprctl dispatch submap reset`.
 - Hyprland 0.56 quirk: `catchall` also fires after a bound key — that is why the
   leader's catchall only does `submap, reset` and must stay **last**.
+- `desk gpt` answers are empty: `DESK_GPT_EFFORT=minimal` is not supported, use `none` or `low`;
+  `gpt-5.4-mini` is refused with a ChatGPT account (leave `DESK_GPT_MODEL` empty).
 - `gh` actions need `gh auth login`; without it, "open PR" opens GitHub's compare page.
 
 ## Dependencies
@@ -150,4 +161,4 @@ rofi (≥ 2.0, Wayland), hyprland, jq, python3, perl, cliphist, wl-clipboard, gr
 slurp, hyprshot, satty, tesseract + tesseract-data-{fra,eng}, imagemagick,
 wf-recorder, ffmpeg, libqalculate (qalc), go-yq, glow, bat, qrencode, fd, tmux,
 alacritty, neovim, gh, docker, scrcpy, android-tools, networkmanager, bluez-utils,
-pipewire-pulse (pactl), swaync, libnotify, claude (Claude Code).
+pipewire-pulse (pactl), swaync, libnotify, claude (Claude Code), codex (Codex CLI, logged in with ChatGPT).
