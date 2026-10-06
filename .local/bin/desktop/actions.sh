@@ -59,6 +59,9 @@ action "Capture · Menu captures (OCR, annotation, vidéo…) ‖ Screenshot · 
 action "Drive · Proton Drive (parcourir, envoyer, lien) ‖ Drive · Proton Drive (browse, upload, link)" cmd "desk drive"
 action "PDF · Boîte à outils PDF (fusionner, signer, compresser…) ‖ PDF · PDF toolbox (merge, sign, compress…)" cmd "desk pdf"
 action "Drop · Partage réseau local (texte, fichiers, QR) ‖ Drop · LAN sharing (text, files, QR)" cmd "desk drop"
+action "Dictée · Démarrer / arrêter (texte tapé au curseur) ‖ Dictation · Start / stop (text typed at cursor)" bind "Dictée · Démarrer / arrêter (texte tapé au curseur) ‖ Dictation · Start / stop (text typed at cursor)"
+action "Dictée · Avec nettoyage IA (ollama) ‖ Dictation · With AI cleanup (ollama)"   bind "Dictée · Démarrer / arrêter avec nettoyage IA (ollama) ‖ Dictation · Start / stop with AI cleanup (ollama)"
+action "Dictée · Annuler l'enregistrement ‖ Dictation · Cancel recording"            bind "Dictée · Annuler l'enregistrement en cours ‖ Dictation · Cancel current recording"
 # sous-actions de chaque module, lues dans les scripts (desk-<module> --list)
 for mod in project git docker ports procs mobile capture ai system notes focus claudenotify drive pdf drop; do
     while IFS=$'\t' read -r id label; do

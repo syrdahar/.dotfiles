@@ -1,0 +1,52 @@
+# Voxtype — dictée locale (desk dictate · ALT+micro)
+# Défauts complets commentés : ~/.config/voxtype/config.toml.default (ou /etc/voxtype/config.toml)
+# Après modification : systemctl --user restart voxtype
+
+state_file = "auto"            # requis pour `voxtype record toggle` et `voxtype status`
+
+[hotkey]
+enabled = false                # raccourcis gérés par Hyprland (~/.config/hypr/desktop-dictation.conf)
+
+[audio]
+device = "default"             # micro par défaut de PipeWire
+sample_rate = 16000
+max_duration_secs = 180        # garde-fou : 3 min max par dictée
+
+[audio.feedback]
+enabled = true                 # bip au début / à la fin de l'enregistrement
+theme = "subtle"
+volume = 0.5
+
+[whisper]
+model = "large-v3-turbo"       # multilingue, ~1,6 Go
+language = ["fr", "en"]        # détection limitée au français et à l'anglais
+translate = false
+on_demand_loading = false      # modèle gardé en mémoire → réponse immédiate
+context_window_optimization = true  # plus rapide pour les dictées < 22 s (peut répéter des mots : repasser à false si ça arrive)
+
+[output]
+mode = "type"                  # tapé au curseur (wtype)
+fallback_to_clipboard = true
+type_delay_ms = 0
+pre_type_delay_ms = 0
+
+[output.notification]
+on_recording_start = false
+on_recording_stop = false
+on_transcription = false
+
+# Profil « propre » (ALT+MAJ+micro) : nettoyage par l'IA locale (ollama)
+[profiles.propre]
+post_process_command = "/home/dorian/.local/bin/desktop/desk-dictate filter"
+post_process_timeout_ms = 30000
+
+[osd]
+frontend = "gtk4"              # petite fenêtre avec le niveau du micro pendant l'enregistrement
+
+[status]
+icon_theme = "minimal"
+
+[vad]
+enabled = true                 # ignore les enregistrements sans parole (évite les « hallucinations » de Whisper)
+threshold = 0.5
+min_speech_duration_ms = 200

@@ -76,6 +76,7 @@ Full, always-up-to-date list: `desk cheatsheet --print` (or `SUPER+Space` `h`).
 | `drive` | `desk drive browse /my-files/Docs` · `desk drive upload /my-files/Docs file.pdf` · `desk drive get /my-files/a.pdf` · `desk drive link /my-files/a.pdf` · `desk drive list` · Dolphin: right-click → Send to Proton Drive |
 | `pdf` | `desk pdf compress a.pdf` · `desk pdf merge a.pdf b.pdf` · `desk pdf gui --tool sign NDA.pdf` · `desk pdf cli run rotate --opt angle=90 a.pdf` · Dolphin: right-click → PDF → … |
 | `drop` | `desk drop toggle` · `desk drop send a.pdf b.jpg` · `desk drop text "hello"` (no arg = clipboard) · `desk drop run qr` · `desk drop status` · Dolphin: right-click → Send to Drop |
+| `dictate` | `desk dictate` (start/stop) · `desk dictate clean` (AI cleanup) · `desk dictate cancel` · `desk dictate waybar` · `echo "euh bon…" \| desk dictate filter` |
 | `shot` | called by hyprshot (`-s -- desk-shot`) after a screenshot to file: notification with thumbnail + Open · Annotate · → Drive (`/my-files/Captures`, recordings → `/my-files/Enregistrements`) |
 | `claudenotify` | `desk claudenotify run toggle` · `desk claudenotify run test` · `hook` (called by Claude Code hooks) |
 
@@ -134,6 +135,25 @@ send action starts it). No PIN: anyone on the local network can read and send wh
   NordVPN must keep **LAN discovery** enabled (`nordvpn set lan-discovery on`).
 - Autostart (optional): `systemctl --user enable desk-drop` · logs: `journalctl --user -u desk-drop`.
 - Tests: `cd ~/.local/bin/desktop && python3 -m pytest drop/tests -q`.
+
+## Dictation — local voice typing (`desk dictate`, `ALT+mic key`)
+
+Wispr Flow-like dictation, fully offline: **voxtype** (AUR `voxtype-bin`) runs Whisper
+`large-v3-turbo` on the Radeon 760M (Vulkan) as the systemd user service `voxtype.service`.
+Text is typed at the cursor (wtype), after the modifiers are released; clipboard if typing fails.
+
+- `ALT+mic`: start / stop (toggle — the mic key sends press+release at once, no push-to-talk).
+  `ALT+SHIFT+mic`: same + **AI cleanup** (profile `propre` → `desk dictate filter` → ollama, ~5 s,
+  fillers and false starts removed; falls back to the raw text on any error).
+  `ALT+CTRL+mic`: cancel. The mic key alone still mutes the mic.
+- Languages: French + English (constrained auto-detect). Small OSD at the bottom while recording, soft beeps.
+- **Waybar**: `custom/dictate` (first in the system island) is only shown while active —
+  red pulsing 󰍬 recording · gold 󰔟 transcribing · grey 󰍭 service stopped. Click = stop (or restart the
+  service if stopped) · right-click = cancel. Stream: `desk dictate waybar` (wraps `voxtype status --follow`).
+- Config: `~/.config/voxtype/config.toml` (stock defaults: `config.toml.default`), then
+  `systemctl --user restart voxtype`. Binds: `~/.config/hypr/desktop-dictation.conf`.
+- AI model: `DESK_DICTATE_MODEL=…` in `desk.conf` (default `llama3.1:8b`, CPU).
+- Checks: `voxtype info accel` (GPU?) · `voxtype status` · `journalctl --user -u voxtype -f`.
 
 ## Files
 
@@ -226,3 +246,4 @@ alacritty, neovim, gh, docker, scrcpy, android-tools, networkmanager, bluez-util
 pipewire-pulse (pactl), swaync, libnotify, claude (Claude Code), codex (Codex CLI, logged in with ChatGPT).
 PDF: python-pymupdf, python-pikepdf, qpdf, img2pdf, ghostscript, poppler, python-pyqt6(-webengine),
 python-markdown, python-numpy; optional libreoffice-fresh (Office → PDF), okular (certified signature).
+Dictation: voxtype-bin, wtype, vulkan-radeon, ollama (optional, AI cleanup).

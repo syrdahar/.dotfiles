@@ -18,7 +18,7 @@
   "group/start":   { "orientation": "inherit", "modules": ["custom/launcher", "hyprland/workspaces"] },
   "group/center":  { "orientation": "inherit", "modules": ["clock", "mpris"] },
   "group/hw":      { "orientation": "inherit", "modules": ["cpu", "memory"] },
-  "group/system":  { "orientation": "inherit", "modules": ["custom/drop", "custom/vpn", "network", "bluetooth", "pulseaudio", "backlight", "battery"] },
+  "group/system":  { "orientation": "inherit", "modules": ["custom/dictate", "custom/drop", "custom/vpn", "network", "bluetooth", "pulseaudio", "backlight", "battery"] },
   "group/session": { "orientation": "inherit", "modules": ["custom/notification", "custom/power"] },
 
   // ── Gauche ─────────────────────────────────────────────────
@@ -125,6 +125,16 @@
   "tray": {
     "icon-size": 13,
     "spacing": 8
+  },
+
+  // Dictée (voxtype) : visible seulement pendant l'enregistrement / la transcription
+  "custom/dictate": {
+    "exec": "~/.local/bin/desktop/desk dictate waybar",
+    "return-type": "json",
+    "restart-interval": 5,
+    "escape": true,
+    "on-click": "~/.local/bin/desktop/desk dictate click",
+    "on-click-right": "~/.local/bin/desktop/desk dictate cancel"
   },
 
   // Drop (partage réseau local) : visible seulement quand le serveur tourne

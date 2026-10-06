@@ -25,7 +25,7 @@ tooltip label { color: @text; padding: 2px 4px; }
 /* ── Modules ──────────────────────────────────────────────── */
 
 #custom-launcher, #workspaces, #window, #clock, #mpris, #tray,
-#custom-claude, #cpu, #memory, #custom-drop, #custom-vpn, #network, #bluetooth, #pulseaudio,
+#custom-claude, #cpu, #memory, #custom-dictate, #custom-drop, #custom-vpn, #network, #bluetooth, #pulseaudio,
 #backlight, #battery, #custom-notification, #custom-power {
   padding: 0 7px;
   margin: 4px 0;
@@ -35,7 +35,7 @@ tooltip label { color: @text; padding: 2px 4px; }
 }
 
 /* Survol : le module "sort" du fond (relief néomorphique) */
-#custom-launcher:hover, #clock:hover, #mpris:hover, #custom-drop:hover, #custom-vpn:hover,
+#custom-launcher:hover, #clock:hover, #mpris:hover, #custom-dictate:hover, #custom-drop:hover, #custom-vpn:hover,
 #network:hover, #bluetooth:hover, #pulseaudio:hover, #backlight:hover,
 #battery:hover, #custom-notification:hover, #cpu:hover, #memory:hover {
   background: @hover_bg;
@@ -124,6 +124,10 @@ tooltip label { color: @text; padding: 2px 4px; }
 #cpu.warning, #memory.warning   { color: @orange; }
 #cpu.critical, #memory.critical { color: @red; }
 
+#custom-dictate.recording    { color: @red; animation: dictate-pulse 0.9s ease-in-out infinite alternate; }
+#custom-dictate.transcribing { color: @gold; }
+#custom-dictate.stopped      { color: @overlay; }
+@keyframes dictate-pulse { to { color: alpha(@red, 0.35); } }
 #custom-drop            { color: @pink; }
 #custom-vpn             { color: @overlay; }
 #custom-vpn.connected   { color: @gold; }

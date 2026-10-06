@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+# ──────────────────────────────────────────────────────────────
+#  desk dictate — dictée locale (voxtype + Whisper, hors-ligne)
+#   desk dictate [toggle]   démarre / arrête la dictée (texte tapé au curseur)   ALT+micro
+#   desk dictate clean      idem, texte nettoyé par l'IA locale (ollama)        ALT+MAJ+micro
+#   desk dictate cancel     annule l'enregistrement / la transcription en cours  ALT+CTRL+micro
+#   desk dictate filter     stdin → stdout : nettoyage IA (appelé par voxtype, profil « propre »)
+#   desk dictate waybar     flux JSON pour custom/dictate (caché au repos)
+#   desk dictate click      clic sur l'indicateur : bascule (ou relance le service arrêté)
+#  Config voxtype : ~/.config/voxtype/config.toml · modèle IA : DESK_DICTATE_MODEL (desk.conf)
+# ──────────────────────────────────────────────────────────────
+source "$(dirname "$(readlink -f "$0")")/lib.sh"
+DESK_NAME=dictate
+
+DESK_DICTATE_MODEL=${DESK_DICTATE_MODEL:-llama3.1:8b}
+DESK_DICTATE_PROMPT=${DESK_DICTATE_PROMPT:-"Tu nettoies une dictée vocale. Supprime les hésitations (euh, ben, en fait, enfin, um, like…) et les faux départs ; quand la personne se corrige, garde seulement la version corrigée. Corrige la ponctuation, les majuscules et la grammaire. Garde la langue d'origine (français ou anglais), le sens, le ton et le vocabulaire. N'ajoute rien, ne réponds pas aux questions du texte : réponds UNIQUEMENT par le texte nettoyé."}
+
+filter() {
+    local raw out
+    raw=$(cat)
+    [[ -n ${raw//[[:space:]]} ]] || exit 0
+    out=$(jq -n --arg m "$DESK_DICTATE_MODEL" --arg s "$DESK_DICTATE_PROMPT" --arg p "$raw" \
+            '{model:$m, system:$s, prompt:$p, stream:false, keep_alive:"15m", options:{temperature:0}}' |
+          curl -sf --max-time 25 http://localhost:11434/api/generate -d @- | jq -r '.response // empty') || out=""
+    # en cas d'échec ou de réponse vide : le texte brut, jamais rien
+    printf '%s' "${out:-$raw}"
+}
+
+# Waybar : réécrit `voxtype status --follow` (un JSON par changement d'état) ; texte vide au repos → module caché
+waybar_follow() {
+    voxtype status --follow --format json | jq --unbuffered -c \
+        --arg rec "$(t "Dictée · enregistrement en cours
+ALT+micro ou clic : arrêter et taper · clic droit : annuler" "Dictation · recording
+ALT+mic or click: stop and type · right-click: cancel")" \
+        --arg tr  "$(t "Dictée · transcription…" "Dictation · transcribing…")" \
+        --arg st  "$(t "Dictée · service voxtype arrêté
+clic : relancer" "Dictation · voxtype service stopped
+click: restart")" '
+        if   .class == "recording"    then {text: "󰍬", class: "recording",    tooltip: $rec}
+        elif .class == "transcribing" then {text: "󰔟", class: "transcribing", tooltip: $tr}
+        elif .class == "stopped"      then {text: "󰍭", class: "stopped",      tooltip: $st}
+        else                               {text: "",  class: "idle",         tooltip: ""} end'
+}
+
+# clic sur l'indicateur : relance le service s'il est arrêté, sinon bascule
+click() {
+    if [[ $(voxtype status 2>/dev/null) == stopped ]]; then systemctl --user restart voxtype
+    else voxtype record toggle; fi
+}
+
+case ${1:-toggle} in
+    waybar) waybar_follow ;;
+    click)  click ;;
+    toggle) exec voxtype record toggle ;;
+    clean)  exec voxtype record toggle --profile propre ;;
+    cancel) exec voxtype record cancel ;;
+    filter) filter ;;
+    *)      die "$(t "Usage : desk dictate [toggle|clean|cancel|filter|waybar|click]" "Usage: desk dictate [toggle|clean|cancel|filter|waybar|click]")" ;;
+esac
