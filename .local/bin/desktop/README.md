@@ -45,6 +45,7 @@ In the leader, SUPER may stay pressed. Any other key cancels (and is swallowed).
 | `s` | SSH to a host from `~/.ssh/config` | Connexion SSH | `desk ssh` |
 | `t` | Toggle terminal scratchpad | Scratchpad terminal | `desk scratch term` |
 | `u` | Processes by CPU / RAM (kill, inspect; Alt+c / Alt+r / Alt+g) | Processus par CPU / RAM | `desk procs` |
+| `v` | Drop: LAN sharing of text & files with your other devices (start/stop, QR, send clipboard / files) | Drop : partage texte et fichiers sur le réseau local | `desk drop` |
 | `w` | Web search with prefixes (`gh ghc mdn npm so aur pac aw yt`) | Recherche web avec préfixes | `desk web` |
 | `x` | System: audio output/input, Wi-Fi, Bluetooth, VPN, DND, reload, lock, power | Système : audio, Wi-Fi, Bluetooth, VPN… | `desk system` |
 | `z` | Focus: timer, pomodoro, focus mode (DND + hidden bar) | Focus : minuteur, pomodoro, mode focus | `desk focus` |
@@ -74,6 +75,7 @@ Full, always-up-to-date list: `desk cheatsheet --print` (or `SUPER+Space` `h`).
 | `lang` | `desk lang` · `desk lang fr` · `desk lang toggle` |
 | `drive` | `desk drive browse /my-files/Docs` · `desk drive upload /my-files/Docs file.pdf` · `desk drive get /my-files/a.pdf` · `desk drive link /my-files/a.pdf` · `desk drive list` · Dolphin: right-click → Send to Proton Drive |
 | `pdf` | `desk pdf compress a.pdf` · `desk pdf merge a.pdf b.pdf` · `desk pdf gui --tool sign NDA.pdf` · `desk pdf cli run rotate --opt angle=90 a.pdf` · Dolphin: right-click → PDF → … |
+| `drop` | `desk drop toggle` · `desk drop send a.pdf b.jpg` · `desk drop text "hello"` (no arg = clipboard) · `desk drop run qr` · `desk drop status` · Dolphin: right-click → Send to Drop |
 | `shot` | called by hyprshot (`-s -- desk-shot`) after a screenshot to file: notification with thumbnail + Open · Annotate · → Drive (`/my-files/Captures`, recordings → `/my-files/Enregistrements`) |
 | `claudenotify` | `desk claudenotify run toggle` · `desk claudenotify run test` · `hook` (called by Claude Code hooks) |
 
@@ -109,6 +111,30 @@ and passed on stdin — never on a command line, never logged.
   design/plan `docs/specs|plans/2026-09-28-desk-pdf*`.
 - Tests: `cd ~/.local/bin/desktop && python3 -m pytest pdf/tests -q` · shell flows: `DESK_TEST=1 DESK_PDF_ANSWERS=$'180\n2' desk pdf rotate a.pdf`.
 
+## Drop — LAN sharing (`desk drop`, leader `v`)
+
+Share text and files with the other devices on your Wi-Fi: they just open the address in a
+browser (nothing to install). A Python stdlib server (`drop/server.py` + `drop/index.html`) run by
+the systemd user unit `desk-drop.service`, **started on demand** (leader `v` → Start/stop, or any
+send action starts it). No PIN: anyone on the local network can read and send while it runs.
+
+- **Page**: one shared feed (newest first), live updates (SSE). Text box (Ctrl+Enter sends),
+  📎 Files, drag & drop or Ctrl+V anywhere (images / files are uploaded). Each text has **Copy**
+  (works over plain http), links get **Open**, files **Download / Open** (image preview), **Delete**, **Clear all**.
+- **From this PC**: `desk drop` menu — QR code of the address (phone), send clipboard (text, image,
+  or files copied in Dolphin), recent files (rofi multi-select), copy last received text, open the
+  page, open `~/Drop`, copy the address. Dolphin: right-click → **Send to Drop**.
+- **Receiving**: an item from **another** device pops a notification with buttons
+  (text → **Copy** · file → **Open · Folder**). Files land in `~/Drop` (`name (2).ext` on collision).
+- **Waybar**: `custom/drop` (pink 󰒗, in the system island) is only shown while the server runs —
+  click = menu · right-click = stop · middle = QR code (`signal 11`).
+- Address: first private IPv4 of a physical interface (VPN `nordlynx`, docker, libvirt… skipped);
+  port 8765 (to change it: `Environment=DESK_DROP_PORT=…` in the unit **and** `DESK_DROP_PORT=…` in `desk.conf`).
+- **Firewall (once)**: `sudo ufw allow from 192.168.1.0/24 to any port 8765 proto tcp`.
+  NordVPN must keep **LAN discovery** enabled (`nordvpn set lan-discovery on`).
+- Autostart (optional): `systemctl --user enable desk-drop` · logs: `journalctl --user -u desk-drop`.
+- Tests: `cd ~/.local/bin/desktop && python3 -m pytest drop/tests -q`.
+
 ## Files
 
 | Path | Role |
@@ -124,6 +150,9 @@ and passed on stdin — never on a command line, never logged.
 | `~/.local/state/desk/` | language, history (projects, ssh), timer state |
 | `~/Images/Captures`, `~/Vidéos/Enregistrements` | annotated screenshots, recordings |
 | `~/notes/inbox.md`, `~/notes/todo.md` | timestamped notes, TODOs |
+| `~/.config/systemd/user/desk-drop.service` | Drop server (on demand) |
+| `~/.local/share/kio/servicemenus/desk-drop.desktop` | Dolphin right-click → Send to Drop |
+| `~/Drop`, `~/.local/state/desk/drop.json` | files received / sent through Drop, shared feed |
 
 Changes to pre-existing files (everything else is new):
 `hyprland.conf` — line 46 (text cliphist watcher) commented + `source =` lines at the end;
@@ -131,6 +160,8 @@ Changes to pre-existing files (everything else is new):
 `keybinds.conf` lines 191–196 — hyprshot file captures end with `-s -- ~/.local/bin/desktop/desk-shot` (own notification with buttons);
 `alacritty.toml` — `[selection] save_to_clipboard = true` (select = copy);
 `desktop-leader.conf` — `p` = PDF, projects moved to `e` (backup `*.bak-2026-09-28-pdf`).
+`desktop-leader.conf` — `v` = Drop; `actions.sh` — Drop entry + `drop` in the module loop;
+`waybar/config` — `custom/drop` in `group/system`; `waybar/base.css` — `#custom-drop` (backups `*.bak-2026-10-06-drop`).
 Backups: `~/.config/hypr.bak-2026-09-27/`, `~/.config/rofi.bak-2026-09-27/`, `alacritty.toml.bak-2026-09-27`.
 
 ## Security

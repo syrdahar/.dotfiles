@@ -1,0 +1,14 @@
+# Menu clic droit de Dolphin → desk drop send (fichiers envoyés vers les appareils du réseau local)
+# Fichier de service KF6 : doit être exécutable (chmod +x).
+[Desktop Entry]
+Type=Service
+MimeType=all/allfiles;
+X-KDE-Protocols=file
+Actions=sendToDrop;
+X-KDE-Priority=TopLevel
+
+[Desktop Action sendToDrop]
+Name=Send to Drop (local network)
+Name[fr]=Envoyer vers Drop (réseau local)
+Icon=document-send
+Exec=/home/dorian/.local/bin/desktop/desk drop send %F

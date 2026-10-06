@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#100c1f">
+<title>Drop</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💧</text></svg>">
+<style>
+  /* Neon Graffiti — même palette que ~/.config/waybar/colors.css */
+  :root {
+    --base:#100c1f; --mantle:#1a1530; --surface:#2a2346; --overlay:#493459;
+    --text:#e6ddf0; --subtext:#c2b1c0; --cyan:#29b4d7; --blue:#3a7bd5;
+    --magenta:#c23d9e; --pink:#ff5fb7; --gold:#e2b620; --orange:#f57c2a; --red:#e0485a;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html, body { margin: 0; background: var(--base); color: var(--text);
+    font: 15px/1.45 "JetBrainsMono Nerd Font", "JetBrains Mono", ui-monospace, monospace; }
+  body { min-height: 100vh; padding: max(16px, env(safe-area-inset-top)) 16px 40px; }
+  main { max-width: 760px; margin: 0 auto; }
+  a { color: var(--cyan); }
+
+  header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+  h1 { margin: 0; font-size: 22px; letter-spacing: .5px;
+    background: linear-gradient(135deg, var(--pink), var(--cyan)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  #url { color: var(--subtext); font-size: 12px; }
+  #dot { width: 9px; height: 9px; border-radius: 50%; background: var(--red); margin-left: auto; flex: none;
+    box-shadow: 0 0 8px currentColor; color: var(--red); transition: .3s; }
+  #dot.on { background: var(--cyan); color: var(--cyan); }
+
+  .card { background: var(--mantle); border: 1px solid var(--surface); border-radius: 14px; padding: 12px; }
+  #composer { border-color: color-mix(in srgb, var(--magenta) 55%, transparent); }
+  textarea { width: 100%; min-height: 92px; resize: vertical; background: var(--base); color: var(--text);
+    border: 1px solid var(--surface); border-radius: 10px; padding: 10px; font: inherit; outline: none; }
+  textarea:focus { border-color: var(--cyan); }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
+  .hint { color: var(--overlay); font-size: 12px; margin-left: auto; }
+  button, .btn { font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; border-radius: 9px; padding: 7px 13px;
+    border: 1px solid var(--surface); background: var(--surface); color: var(--text); text-decoration: none;
+    display: inline-flex; align-items: center; gap: 6px; transition: .15s; }
+  button:hover, .btn:hover { border-color: var(--cyan); }
+  button.primary { background: linear-gradient(135deg, var(--magenta), var(--pink)); border: none; color: #fff; }
+  button.ghost { background: transparent; }
+  button.danger:hover { border-color: var(--red); color: var(--red); }
+  button.ok { border-color: var(--cyan); color: var(--cyan); }
+
+  #uploads:empty { display: none; }
+  #uploads { margin-top: 10px; display: grid; gap: 6px; }
+  .up { font-size: 12px; color: var(--subtext); }
+  .bar { height: 4px; border-radius: 4px; background: var(--surface); overflow: hidden; margin-top: 3px; }
+  .bar > i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--cyan), var(--pink)); }
+
+  #toolbar { display: flex; align-items: center; margin: 22px 2px 10px; color: var(--subtext); font-size: 13px; }
+  #toolbar button { margin-left: auto; padding: 4px 10px; font-size: 12px; }
+  #feed { display: grid; gap: 10px; }
+  .item { position: relative; }
+  .meta { display: flex; gap: 8px; align-items: center; font-size: 12px; color: var(--subtext); margin-bottom: 8px; }
+  .meta .dev { color: var(--gold); }
+  .meta .dev.local { color: var(--cyan); }
+  .text { white-space: pre-wrap; word-break: break-word; max-height: 45vh; overflow: auto; margin: 0;
+    background: var(--base); border-radius: 10px; padding: 10px; font: inherit; }
+  .file { display: flex; align-items: center; gap: 12px; }
+  .file .icon { font-size: 26px; }
+  .file .name { word-break: break-all; }
+  .file .size { color: var(--subtext); font-size: 12px; }
+  .preview { display: block; max-width: 100%; max-height: 320px; border-radius: 10px; margin-bottom: 10px; }
+  .actions { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
+  .empty { text-align: center; color: var(--overlay); padding: 30px 0; }
+
+  #drop { position: fixed; inset: 0; display: none; place-items: center; z-index: 10;
+    background: color-mix(in srgb, var(--base) 85%, transparent); border: 3px dashed var(--pink);
+    font-size: 22px; color: var(--pink); }
+  body.dragging #drop { display: grid; }
+  #toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%) translateY(80px); opacity: 0;
+    background: var(--surface); border: 1px solid var(--cyan); padding: 8px 16px; border-radius: 10px; transition: .25s; z-index: 11; }
+  #toast.show { transform: translateX(-50%); opacity: 1; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>💧 Drop</h1>
+    <span id="url"></span>
+    <span id="dot" title=""></span>
+  </header>
+
+  <section id="composer" class="card">
+    <textarea id="msg" data-ph="Colle ou tape du texte… (Ctrl+Entrée pour envoyer) ‖ Paste or type text… (Ctrl+Enter to send)"></textarea>
+    <div class="row">
+      <button class="primary" id="send" data-t="Envoyer ‖ Send"></button>
+      <button id="pick" data-t="📎 Fichiers ‖ 📎 Files"></button>
+      <input type="file" id="files" multiple hidden>
+      <span class="hint" data-t="Glisser-déposer ou Ctrl+V marche aussi ‖ Drag & drop or Ctrl+V works too"></span>
+    </div>
+    <div id="uploads"></div>
+  </section>
+
+  <div id="toolbar">
+    <span id="count"></span>
+    <button class="ghost danger" id="clear" hidden data-t="Tout effacer ‖ Clear all"></button>
+  </div>
+  <section id="feed"></section>
+</main>
+<div id="drop" data-t="Lâche pour envoyer ‖ Drop to send"></div>
+<div id="toast"></div>
+
+<script>
+"use strict";
+let lang = (navigator.language || "en").startsWith("fr") ? "fr" : "en";
+const $ = (s) => document.querySelector(s);
+const t = (s) => { const [fr, en] = s.split(" ‖ "); return lang === "fr" ? fr : (en ?? fr); };
+
+function applyLang() {
+  document.documentElement.lang = lang;
+  document.querySelectorAll("[data-t]").forEach((el) => el.textContent = t(el.dataset.t));
+  $("#msg").placeholder = t($("#msg").dataset.ph);
+}
+
+// ── Utilitaires ─────────────────────────────────────────────
+function toast(msg) {
+  const el = $("#toast"); el.textContent = msg; el.classList.add("show");
+  clearTimeout(toast.h); toast.h = setTimeout(() => el.classList.remove("show"), 1600);
+}
+function size(n) {
+  const u = ["o", "Ko", "Mo", "Go"], ue = ["B", "KB", "MB", "GB"];
+  let i = 0; while (n >= 1024 && i < 3) { n /= 1024; i++; }
+  return `${n.toFixed(i && n < 10 ? 1 : 0)} ${(lang === "fr" ? u : ue)[i]}`;
+}
+function ago(ts) {
+  const s = Math.max(0, Date.now() / 1000 - ts);
+  if (s < 45) return t("à l'instant ‖ just now");
+  if (s < 3600) return lang === "fr" ? `il y a ${Math.round(s / 60)} min` : `${Math.round(s / 60)} min ago`;
+  if (s < 86400) return lang === "fr" ? `il y a ${Math.round(s / 3600)} h` : `${Math.round(s / 3600)} h ago`;
+  return new Date(ts * 1000).toLocaleString(lang, { dateStyle: "short", timeStyle: "short" });
+}
+function fileIcon(name) {
+  const e = name.split(".").pop().toLowerCase();
+  if (["png","jpg","jpeg","gif","webp","svg","heic","avif"].includes(e)) return "🖼️";
+  if (["mp4","mov","mkv","webm","avi"].includes(e)) return "🎬";
+  if (["mp3","wav","flac","ogg","m4a","opus"].includes(e)) return "🎵";
+  if (["zip","tar","gz","7z","rar","xz","zst"].includes(e)) return "📦";
+  if (e === "pdf") return "📕";
+  return "📄";
+}
+const isImage = (n) => /\.(png|jpe?g|gif|webp|avif)$/i.test(n);
+
+// navigator.clipboard n'existe qu'en HTTPS / localhost : repli execCommand pour http://192.168…
+async function copy(text) {
+  try { await navigator.clipboard.writeText(text); return true; } catch {}
+  const ta = document.createElement("textarea");
+  ta.value = text; ta.setAttribute("readonly", ""); ta.style.cssText = "position:fixed;top:0;opacity:0";
+  document.body.appendChild(ta); ta.select(); ta.setSelectionRange(0, text.length);
+  let ok = false; try { ok = document.execCommand("copy"); } catch {}
+  ta.remove(); return ok;
+}
+
+// ── Envoi ───────────────────────────────────────────────────
+async function sendText() {
+  const text = $("#msg").value;
+  if (!text.trim()) return;
+  const r = await fetch("/api/text", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text }) });
+  if (r.ok) { $("#msg").value = ""; toast(t("Envoyé ‖ Sent")); } else toast(t("Échec de l'envoi ‖ Send failed"));
+}
+
+function upload(file) {
+  const row = document.createElement("div");
+  row.className = "up";
+  row.innerHTML = `<span></span><div class="bar"><i></i></div>`;
+  row.firstChild.textContent = `${file.name} · ${size(file.size)}`;
+  $("#uploads").appendChild(row);
+  const xhr = new XMLHttpRequest();
+  xhr.open("POST", "/api/upload");
+  xhr.setRequestHeader("X-Filename", encodeURIComponent(file.name || "fichier"));
+  xhr.upload.onprogress = (e) => { if (e.lengthComputable) row.querySelector("i").style.width = `${100 * e.loaded / e.total}%`; };
+  xhr.onload = () => { row.remove(); toast(xhr.status < 300 ? `✓ ${file.name}` : t("Échec de l'envoi ‖ Upload failed")); };
+  xhr.onerror = () => { row.remove(); toast(t("Échec de l'envoi ‖ Upload failed")); };
+  xhr.send(file);
+}
+const uploadAll = (files) => [...files].forEach(upload);
+
+// ── Fil ─────────────────────────────────────────────────────
+let items = [];
+function render() {
+  const feed = $("#feed");
+  feed.replaceChildren();
+  $("#count").textContent = items.length
+    ? (lang === "fr" ? `${items.length} élément${items.length > 1 ? "s" : ""}` : `${items.length} item${items.length > 1 ? "s" : ""}`) : "";
+  $("#clear").hidden = !items.length;
+  if (!items.length) {
+    feed.innerHTML = `<div class="empty"></div>`;
+    feed.firstChild.textContent = t("Rien pour l'instant — envoie un texte ou un fichier ‖ Nothing yet — send some text or a file");
+    return;
+  }
+  for (const it of items) {
+    const card = document.createElement("article");
+    card.className = "card item";
+    const meta = document.createElement("div");
+    meta.className = "meta";
+    const dev = document.createElement("span");
+    dev.className = "dev" + (it.local ? " local" : "");
+    dev.textContent = it.device;
+    const when = document.createElement("span");
+    when.textContent = "· " + ago(it.ts);
+    meta.append(dev, when);
+    card.appendChild(meta);
+
+    const actions = document.createElement("div");
+    actions.className = "actions";
+    const btn = (label, fn, cls = "") => { const b = document.createElement("button"); b.textContent = label; b.className = cls; b.onclick = fn; actions.appendChild(b); return b; };
+
+    if (it.type === "text") {
+      const pre = document.createElement("pre");
+      pre.className = "text";
+      pre.textContent = it.text;
+      card.appendChild(pre);
+      const c = btn(t("📋 Copier ‖ 📋 Copy"), async () => {
+        if (await copy(it.text)) { c.textContent = t("✓ Copié ‖ ✓ Copied"); c.classList.add("ok"); }
+        else toast(t("Copie impossible : sélectionne le texte ‖ Copy failed: select the text"));
+      }, "primary");
+      if (/^https?:\/\/\S+$/.test(it.text.trim())) {
+        const a = document.createElement("a");
+        a.className = "btn"; a.href = it.text.trim(); a.target = "_blank"; a.rel = "noopener noreferrer";
+        a.textContent = t("↗ Ouvrir ‖ ↗ Open");
+        actions.appendChild(a);
+      }
+    } else {
+      const href = `/f/${it.id}/${encodeURIComponent(it.file)}`;
+      if (isImage(it.file)) {
+        const img = document.createElement("img");
+        img.className = "preview"; img.loading = "lazy"; img.src = href; img.alt = it.file;
+        card.appendChild(img);
+      }
+      const f = document.createElement("div");
+      f.className = "file";
+      f.innerHTML = `<span class="icon"></span><div><div class="name"></div><div class="size"></div></div>`;
+      f.querySelector(".icon").textContent = fileIcon(it.file);
+      f.querySelector(".name").textContent = it.file;
+      f.querySelector(".size").textContent = size(it.size);
+      card.appendChild(f);
+      const dl = document.createElement("a");
+      dl.className = "btn"; dl.href = href + "?dl=1"; dl.download = it.file;
+      dl.textContent = t("⬇ Télécharger ‖ ⬇ Download");
+      dl.style.cssText = "background:linear-gradient(135deg,var(--blue),var(--cyan));border:none;color:#fff";
+      actions.appendChild(dl);
+      const op = document.createElement("a");
+      op.className = "btn"; op.href = href; op.target = "_blank"; op.rel = "noopener";
+      op.textContent = t("↗ Ouvrir ‖ ↗ Open");
+      actions.appendChild(op);
+    }
+    btn(t("Supprimer ‖ Delete"), () => fetch(`/api/items/${it.id}`, { method: "DELETE" }), "ghost danger");
+    card.appendChild(actions);
+    feed.appendChild(card);
+  }
+}
+
+// ── Temps réel (SSE, reconnexion automatique) ───────────────
+function live() {
+  const es = new EventSource("/api/events");
+  es.addEventListener("items", (e) => { items = JSON.parse(e.data); render(); });
+  es.onopen = () => { $("#dot").classList.add("on"); $("#dot").title = t("Connecté ‖ Connected"); };
+  es.onerror = () => { $("#dot").classList.remove("on"); $("#dot").title = t("Déconnecté — reconnexion… ‖ Disconnected — reconnecting…"); };
+}
+
+// ── Événements ──────────────────────────────────────────────
+$("#send").onclick = sendText;
+$("#msg").addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); sendText(); } });
+$("#pick").onclick = () => $("#files").click();
+$("#files").onchange = (e) => { uploadAll(e.target.files); e.target.value = ""; };
+$("#clear").onclick = () => { if (confirm(t("Effacer tout le fil (fichiers compris) ? ‖ Clear the whole feed (files included)?"))) fetch("/api/clear", { method: "POST" }); };
+
+let depth = 0;
+addEventListener("dragenter", (e) => { if (e.dataTransfer.types.includes("Files")) { depth++; document.body.classList.add("dragging"); } });
+addEventListener("dragleave", () => { if (--depth <= 0) { depth = 0; document.body.classList.remove("dragging"); } });
+addEventListener("dragover", (e) => e.preventDefault());
+addEventListener("drop", (e) => {
+  e.preventDefault(); depth = 0; document.body.classList.remove("dragging");
+  if (e.dataTransfer.files.length) uploadAll(e.dataTransfer.files);
+});
+// Ctrl+V d'une image / de fichiers n'importe où ; le texte collé va dans la zone de saisie
+addEventListener("paste", (e) => {
+  const files = [...(e.clipboardData?.files || [])];
+  if (files.length) { e.preventDefault(); uploadAll(files); return; }
+  if (document.activeElement !== $("#msg")) {
+    const text = e.clipboardData?.getData("text");
+    if (text) { e.preventDefault(); $("#msg").value = text; $("#msg").focus(); }
+  }
+});
+setInterval(() => items.length && render(), 60000);   // rafraîchit « il y a … »
+
+applyLang();
+fetch("/api/items").then((r) => r.json()).then((d) => {
+  lang = d.lang === "fr" ? "fr" : "en";
+  $("#url").textContent = d.url.replace(/^http:\/\//, "");
+  applyLang(); items = d.items; render();
+}).finally(live);
+</script>
+</body>
+</html>

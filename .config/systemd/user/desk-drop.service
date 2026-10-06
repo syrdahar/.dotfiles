@@ -1,0 +1,15 @@
+# desk drop — partage texte / fichiers sur le réseau local (port 8765)
+# Démarré à la demande : desk drop toggle · SUPER+Espace puis v · waybar
+# Démarrage automatique (optionnel) : systemctl --user enable desk-drop
+[Unit]
+Description=desk drop (LAN text / file sharing)
+After=network-online.target
+
+[Service]
+ExecStart=/usr/bin/python3 %h/.local/bin/desktop/drop/server.py
+Environment=PYTHONUNBUFFERED=1
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target

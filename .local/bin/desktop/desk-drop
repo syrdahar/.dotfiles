@@ -1,0 +1,189 @@
+#!/usr/bin/env bash
+# ──────────────────────────────────────────────────────────────
+#  desk drop — partage texte / fichiers avec les appareils du réseau local
+#   desk drop                  menu (état + URL dans l'en-tête)
+#   desk drop toggle           démarre / arrête le serveur (service systemd desk-drop)
+#   desk drop start | stop     idem, explicite
+#   desk drop send fichiers…   envoie des fichiers (Dolphin : clic droit → Envoyer vers Drop)
+#   desk drop text [texte]     envoie un texte (sans argument : le presse-papier)
+#   desk drop status           état et URL (CLI)
+#   desk drop waybar           JSON du module waybar custom/drop
+#  Les autres appareils ouvrent l'URL dans un navigateur (QR code : action « qr »).
+#  Reçus : ~/Drop · serveur : drop/server.py · notification à boutons à chaque réception.
+# ──────────────────────────────────────────────────────────────
+source "$(dirname "$(readlink -f "$0")")/lib.sh"
+DESK_NAME=drop
+UNIT=desk-drop.service
+PORT=${DESK_DROP_PORT:-8765}
+API=http://127.0.0.1:$PORT
+FILES=${DESK_DROP_DIR:-$HOME/Drop}
+STATE=$DESK_STATE/drop.json
+SIGNAL=11                                       # pkill -RTMIN+11 waybar → rafraîchit custom/drop
+
+ACTIONS=(
+    "toggle|Drop · Démarrer / arrêter le partage local ‖ Drop · Start / stop LAN sharing"
+    "qr|Drop · QR code de l'adresse (téléphone) ‖ Drop · Address QR code (phone)"
+    "clip|Drop · Envoyer le presse-papier (texte, image, fichiers) ‖ Drop · Send clipboard (text, image, files)"
+    "files|Drop · Envoyer des fichiers récents… ‖ Drop · Send recent files…"
+    "last|Drop · Copier le dernier texte reçu ‖ Drop · Copy last received text"
+    "open|Drop · Ouvrir la page dans le navigateur ‖ Drop · Open the page in the browser"
+    "folder|Drop · Ouvrir le dossier ~/Drop ‖ Drop · Open the ~/Drop folder"
+    "url|Drop · Copier l'adresse ‖ Drop · Copy the address"
+)
+
+active() { systemctl --user is-active --quiet "$UNIT"; }
+lan_url() { python3 "$DESK_DIR/drop/server.py" --url; }
+refresh_bar() { pkill -RTMIN+$SIGNAL waybar 2>/dev/null || true; }
+
+ensure_running() {
+    if ! active; then
+        systemctl --user start "$UNIT" || die "$(t "Le serveur n'a pas démarré" "The server did not start") (journalctl --user -u $UNIT)"
+        refresh_bar
+    fi
+    local i
+    for (( i = 0; i < 30; i++ )); do
+        curl -sf -o /dev/null "$API/api/items" && return 0
+        sleep 0.1
+    done
+    die "$(t "Le serveur ne répond pas" "The server is not responding") (journalctl --user -u $UNIT)"
+}
+
+# notification « actif » : boutons QR · Ouvrir (en arrière-plan, comme desk-shot)
+started_notif() {
+    local u; u=$(lan_url)
+    if [[ -n ${DESK_TEST:-} ]]; then notify "$(t "Drop actif" "Drop is on")" "$u"; return; fi
+    setsid -f bash -c '
+        a=$(timeout --foreground 10m notify-send -a desk -u low -i network-wireless-symbolic \
+              -h string:x-canonical-private-synchronous:desk-drop -A "qr=$3" -A "open=$4" "$1" "$2" 2>/dev/null)
+        case $a in qr) "$5" drop run qr ;; open) "$5" drop run open ;; esac
+    ' _ "$(t "Drop actif" "Drop is on")" "$u  ·  $(t "à ouvrir sur tes autres appareils" "open it on your other devices")" \
+        "QR code" "$(t Ouvrir Open)" "$DESK_DIR/desk" >/dev/null 2>&1
+}
+
+a_toggle() {
+    if active; then
+        systemctl --user stop "$UNIT"; refresh_bar
+        notify -u low -i network-offline-symbolic -h string:x-canonical-private-synchronous:desk-drop "$(t "Drop arrêté" "Drop stopped")"
+    else
+        ensure_running; started_notif
+    fi
+}
+
+a_qr() {
+    ensure_running
+    local u; u=$(lan_url)
+    float_run "Drop · QR" "$HOME" bash -c 'printf "\n"; qrencode -t ansiutf8 -m 2 "$1"; printf "\n   \e[1;36m%s\e[0m\n   \e[2m%s\e[0m\n" "$1" "$2"' _ \
+        "$u" "$(t "Scanne avec le téléphone (même Wi-Fi)" "Scan with your phone (same Wi-Fi)")"
+}
+
+# post_file chemin [nom]   envoi en flux (-T : pas de chargement en mémoire)
+post_file() {
+    curl -sf -o /dev/null -X POST -T "$1" -H "X-Filename: $(urlencode "${2:-${1##*/}}")" "$API/api/upload"
+}
+
+post_text() {   # texte sur stdin
+    jq -Rs '{text: .}' | curl -sf -o /dev/null -X POST -H 'Content-Type: application/json' --data-binary @- "$API/api/text"
+}
+
+send_files() {
+    (( $# )) || exit 0
+    ensure_running
+    local f n=0 total=0 failed=()
+    for f; do
+        [[ -f $f ]] || { failed+=("${f##*/}"); continue; }
+        if post_file "$f"; then n=$((n + 1)); total=$(( total + $(stat -c %s "$f") ))
+        else failed+=("${f##*/}"); fi
+    done
+    (( ${#failed[@]} )) && die "$(t "Échec de l'envoi" "Upload failed") : ${failed[*]}"
+    local what; what=$( (( n == 1 )) && printf '%s' "${1##*/}" || printf '%s %s' "$n" "$(t fichiers files)")
+    notify -u low -i document-send-symbolic -h string:x-canonical-private-synchronous:desk-drop \
+        "$(t "Envoyé vers Drop" "Sent to Drop")" "$what · $(numfmt --to=iec --suffix=B "$total")"
+}
+
+send_text() {
+    local text=$1
+    [[ -n ${text//[[:space:]]/} ]] || die "$(t "Rien à envoyer (texte vide)" "Nothing to send (empty text)")"
+    ensure_running
+    printf '%s' "$text" | post_text || die "$(t "Échec de l'envoi" "Send failed")"
+    notify -u low -i edit-paste-symbolic -h string:x-canonical-private-synchronous:desk-drop \
+        "$(t "Texte envoyé vers Drop" "Text sent to Drop")" "$(printf '%s' "$text" | head -c 120)"
+}
+
+# Presse-papier : fichiers copiés (Dolphin) → fichiers ; image → .png ; sinon texte
+a_clip() {
+    local types; types=$(wl-paste --list-types 2>/dev/null || true)
+    if grep -qx 'text/uri-list' <<<"$types"; then
+        local -a files=(); local u
+        while read -r u; do
+            u=${u%$'\r'}; [[ $u == file://* ]] || continue
+            files+=("$(python3 -c 'import sys,urllib.parse as p; print(p.unquote(p.urlparse(sys.argv[1]).path))' "$u")")
+        done < <(wl-paste --type text/uri-list)
+        (( ${#files[@]} )) && { send_files "${files[@]}"; return; }
+    fi
+    local img; img=$(grep -m1 -E '^image/(png|jpeg|webp|gif)$' <<<"$types" || true)
+    if [[ -n $img ]]; then
+        ensure_running
+        local tmp; tmp=$(mktemp --suffix=".${img#image/}")
+        wl-paste --type "$img" >"$tmp"
+        post_file "$tmp" "$(t presse-papier clipboard)-$(date +%Y%m%d-%H%M%S).${img#image/}" || { rm -f "$tmp"; die "$(t "Échec de l'envoi" "Upload failed")"; }
+        rm -f "$tmp"
+        notify -u low -i image-x-generic-symbolic -h string:x-canonical-private-synchronous:desk-drop "$(t "Image envoyée vers Drop" "Image sent to Drop")"
+        return
+    fi
+    send_text "$(clip_get)"
+}
+
+a_files() {
+    local -a files=() picked=()
+    mapfile -t files < <(fd --type f --changed-within 60d --max-depth 5 \
+        -E .git -E node_modules -E .cache -E .local -E .mozilla -E .var -E .librewolf -E Drop . "$HOME" \
+        --exec-batch stat -c '%Y %n' 2>/dev/null | sort -rn | head -n 400 | cut -d' ' -f2-)
+    (( ${#files[@]} )) || die "$(t "Aucun fichier récent trouvé" "No recent file found")"
+    local idx i
+    idx=$(for i in "${files[@]}"; do tilde "$i"; echo; done | menu "󰒗  drop" -format i -multi-select \
+          -mesg "$(t "Fichiers récents · Maj+Entrée : plusieurs" "Recent files · Shift+Enter: several")") || exit 0
+    while read -r i; do [[ -n $i ]] && picked+=("${files[$i]}"); done <<<"$idx"
+    send_files "${picked[@]}"
+}
+
+a_last() {
+    local text
+    text=$(jq -r 'first(.[] | select(.type == "text" and (.local | not))) | .text // empty' "$STATE" 2>/dev/null || true)
+    [[ -n $text ]] || die "$(t "Aucun texte reçu d'un autre appareil" "No text received from another device")"
+    clip_set "$text"
+    notify -u low -i edit-copy-symbolic "$(t "Copié" "Copied")" "$(printf '%s' "$text" | head -c 120)"
+}
+
+a_open()   { ensure_running; open_url "http://localhost:$PORT"; }
+a_folder() { mkdir -p "$FILES"; setsid -f xdg-open "$FILES" >/dev/null 2>&1; }
+a_url()    { local u; u=$(lan_url); clip_set "$u"; notify -u low -i edit-copy-symbolic "$(t "Adresse copiée" "Address copied")" "$u"; }
+
+status_line() {
+    if active; then printf '%s · %s' "$(t actif on)" "$(lan_url)"; else t "arrêté" "stopped"; fi
+}
+
+waybar_json() {
+    trap - ERR
+    if ! active; then echo '{"text":""}'; exit 0; fi       # texte vide → module caché
+    local u n
+    u=$(lan_url); n=$(jq length "$STATE" 2>/dev/null || echo 0)
+    jq -cn --arg u "$u" --arg n "$n" --arg l "$DESK_LANG" '
+        {text: "󰒗", class: "on",
+         tooltip: (if $l == "fr"
+            then "Drop actif · \($u)\n\($n) élément(s)\nclic : menu · clic droit : arrêter · molette : QR code"
+            else "Drop on · \($u)\n\($n) item(s)\nclick: menu · right-click: stop · middle: QR code" end)}'
+}
+
+case "${1:-}" in
+    "")       menu_actions "󰒗  drop" "Drop · $(status_line)" ;;
+    toggle)   a_toggle ;;
+    start)    active || a_toggle ;;
+    stop)     ! active || a_toggle ;;
+    send)     shift; send_files "$@" ;;
+    text)     shift; if (( $# )); then send_text "$*"; else a_clip; fi ;;
+    status)   status_line; echo ;;
+    waybar)   waybar_json ;;
+    run)      shift; run_action "$@" ;;
+    --list)   list_actions ;;
+    *)        sed -n '3,12p' "$0" | sed 's/^#  \{0,1\}//'; exit 1 ;;
+esac
