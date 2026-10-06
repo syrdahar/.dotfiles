@@ -1,0 +1,11 @@
+/* Mode docked : pleine largeur, collée en haut et sur les côtés */
+window#waybar {
+  background: @bar_bg;
+  border: none;
+  border-bottom: 1px solid @edge;
+  border-radius: 0;
+  box-shadow: inset 0 -1px 0 @edge_hi;
+}
+
+.modules-left  { margin-left: 4px; }
+.modules-right { margin-right: 4px; }

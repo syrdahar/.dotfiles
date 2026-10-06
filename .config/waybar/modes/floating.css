@@ -1,0 +1,7 @@
+/* Mode floating : une barre unique détachée des bords */
+window#waybar {
+  background: @bar_bg;
+  border: 1px solid @edge;
+  border-radius: 12px;
+  box-shadow: inset 1px 1px 0 @edge_hi;
+}

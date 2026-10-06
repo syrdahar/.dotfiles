@@ -1,0 +1,13 @@
+/* ──────────────────────────────────────────────────────────────
+   Waybar — Neon Graffiti
+   colors.css  palette (miroir de hypr/colors.conf)
+   look.css    → looks/{neon,glass}.css        ambiance
+   base.css    modules
+   mode.css    → modes/{islands,floating,docked}.css  disposition
+   Bascule : ~/.config/hypr/scripts/rice.sh {bar|look} …
+   ────────────────────────────────────────────────────────────── */
+
+@import "colors.css";
+@import "look.css";
+@import "base.css";
+@import "mode.css";

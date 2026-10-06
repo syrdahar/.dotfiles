@@ -1,0 +1,165 @@
+/* ──────────────────────────────────────────────────────────────
+   Waybar — base commune à tous les modes / looks
+   Couleurs d'ambiance (bar_bg, chip_bg, shade_*…) : look.css
+   ────────────────────────────────────────────────────────────── */
+
+* {
+  font-family: "JetBrainsMono Nerd Font Propo", "JetBrainsMono Nerd Font";
+  font-size: 11px;
+  font-weight: 600;
+  min-height: 0;
+  border: none;
+  border-radius: 0;
+}
+
+window#waybar { color: @text; }
+
+tooltip {
+  background: alpha(@mantle, 0.96);
+  border: 1px solid alpha(@magenta, 0.55);
+  border-radius: 10px;
+}
+
+tooltip label { color: @text; padding: 2px 4px; }
+
+/* ── Modules ──────────────────────────────────────────────── */
+
+#custom-launcher, #workspaces, #window, #clock, #mpris, #tray,
+#custom-claude, #cpu, #memory, #custom-drop, #custom-vpn, #network, #bluetooth, #pulseaudio,
+#backlight, #battery, #custom-notification, #custom-power {
+  padding: 0 7px;
+  margin: 4px 0;
+  border-radius: 8px;
+  background: transparent;
+  transition: all 0.25s ease;
+}
+
+/* Survol : le module "sort" du fond (relief néomorphique) */
+#custom-launcher:hover, #clock:hover, #mpris:hover, #custom-drop:hover, #custom-vpn:hover,
+#network:hover, #bluetooth:hover, #pulseaudio:hover, #backlight:hover,
+#battery:hover, #custom-notification:hover, #cpu:hover, #memory:hover {
+  background: @hover_bg;
+  box-shadow: 2px 2px 5px @shade_dark, -1px -1px 3px @shade_light;
+}
+
+/* ── Gauche ───────────────────────────────────────────────── */
+
+#custom-launcher {
+  margin-left: 4px;
+  padding: 0 9px 0 8px;
+  font-size: 14px;
+  color: @cyan;
+}
+
+/* Rail des workspaces : creusé dans la surface */
+#workspaces {
+  padding: 0 3px;
+  background: @chip_bg;
+  box-shadow: inset 2px 2px 4px @shade_dark, inset -1px -1px 3px @shade_light;
+}
+
+#workspaces button {
+  padding: 0 4px;
+  margin: 2px 1px;
+  color: @subtext;
+  background: transparent;
+  border-radius: 6px;
+  transition: all 0.3s cubic-bezier(0.2, 1, 0.3, 1);
+}
+
+#workspaces button.empty { color: alpha(@subtext, 0.35); }
+
+#workspaces button.active {
+  color: @base;
+  padding: 0 9px;
+  background: linear-gradient(90deg, @cyan, @magenta);
+  box-shadow: 0 0 8px alpha(@magenta, 0.45), inset 1px 1px 0 alpha(#ffffff, 0.25);
+}
+
+#workspaces button.urgent { color: @base; background: @gold; }
+
+#workspaces button:hover {
+  color: @text;
+  background: @hover_bg;
+  box-shadow: none;
+  text-shadow: none;
+}
+
+#window { color: @subtext; font-weight: 500; }
+
+/* ── Centre ───────────────────────────────────────────────── */
+
+#clock {
+  color: @text;
+  font-size: 12px;
+  font-weight: 800;
+  padding: 0 11px;
+  background: @chip_bg;
+  box-shadow: inset 2px 2px 4px @shade_dark, inset -1px -1px 3px @shade_light;
+}
+
+#mpris        { color: @pink; margin-left: 6px; }
+#mpris.paused { color: @subtext; }
+
+/* ── Droite ───────────────────────────────────────────────── */
+
+#tray { padding: 0 8px; }
+#tray > .needs-attention { background: alpha(@red, 0.5); border-radius: 6px; }
+
+#custom-claude {
+  color: #d97757;                 /* orange "Claude" */
+  padding: 0 9px;
+  margin-right: 4px;
+  background: @chip_bg;
+  border: 1px solid alpha(@overlay, 0.6);
+}
+
+#custom-claude:hover    { background: @hover_bg; }
+#custom-claude.warning  { border-color: alpha(@orange, 0.75); }
+#custom-claude.critical { border-color: alpha(@red, 0.85); }
+#custom-claude.error    { color: @overlay; }
+
+#cpu                    { color: @blue; }
+#memory                 { color: @pink; }
+#cpu.warning, #memory.warning   { color: @orange; }
+#cpu.critical, #memory.critical { color: @red; }
+
+#custom-drop            { color: @pink; }
+#custom-vpn             { color: @overlay; }
+#custom-vpn.connected   { color: @gold; }
+#network                { color: @cyan; }
+#network.disconnected   { color: @red; }
+#bluetooth              { color: @blue; }
+#bluetooth.connected    { color: @cyan; }
+#bluetooth.off,
+#bluetooth.disabled     { color: @overlay; }
+#pulseaudio             { color: @magenta; }
+#pulseaudio.muted       { color: @overlay; }
+#backlight              { color: @gold; }
+#battery                { color: @text; }
+#battery.charging,
+#battery.plugged        { color: @cyan; }
+#battery.warning:not(.charging) { color: @orange; }
+
+@keyframes blink { to { background: @red; color: @base; } }
+
+#battery.critical:not(.charging) {
+  color: @red;
+  animation: blink 0.8s steps(12) infinite alternate;
+}
+
+#custom-notification { color: @subtext; font-size: 12px; }
+#custom-notification.notification,
+#custom-notification.dnd-notification { color: @pink; }
+
+/* Bouton power : relief + dégradé */
+#custom-power {
+  margin-right: 4px;
+  padding: 0 10px;
+  color: @base;
+  font-size: 12px;
+  background: linear-gradient(135deg, @magenta, @red);
+  box-shadow: 2px 2px 5px @shade_dark, inset 1px 1px 0 alpha(#ffffff, 0.2);
+}
+
+#custom-power:hover { background: linear-gradient(135deg, @pink, @orange); }

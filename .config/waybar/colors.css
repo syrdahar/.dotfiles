@@ -1,0 +1,17 @@
+/* Neon Graffiti — palette tirée de ~/Images/einstein.jpg
+   (miroir de ~/.config/hypr/colors.conf) */
+
+@define-color base     #100c1f;
+@define-color mantle   #1a1530;
+@define-color surface  #2a2346;
+@define-color overlay  #493459;
+@define-color text     #e6ddf0;
+@define-color subtext  #c2b1c0;
+
+@define-color cyan     #29b4d7;
+@define-color blue     #3a7bd5;
+@define-color magenta  #c23d9e;
+@define-color pink     #ff5fb7;
+@define-color gold     #e2b620;
+@define-color orange   #f57c2a;
+@define-color red      #e0485a;

@@ -1,0 +1,2 @@
+// Widget de stats à droite : CPU + RAM
+{ "modules-right": ["group/hw", "tray", "group/system", "group/session"] }

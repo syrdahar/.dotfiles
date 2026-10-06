@@ -1,0 +1,2 @@
+// Widget de stats à droite : quotas Claude Code
+{ "modules-right": ["custom/claude", "tray", "group/system", "group/session"] }
