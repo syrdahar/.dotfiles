@@ -1,0 +1,16 @@
+# Menu clic droit de Dolphin → desk pdf (documents convertibles)
+# Fichier de service KF6 : doit être exécutable (chmod +x).
+[Desktop Entry]
+Type=Service
+MimeType=application/msword;application/vnd.openxmlformats-officedocument.wordprocessingml.document;application/vnd.oasis.opendocument.text;application/rtf;application/vnd.ms-excel;application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;application/vnd.oasis.opendocument.spreadsheet;text/csv;application/vnd.ms-powerpoint;application/vnd.openxmlformats-officedocument.presentationml.presentation;application/vnd.oasis.opendocument.presentation;text/html;text/markdown;text/plain;
+X-KDE-Protocols=file
+X-KDE-Submenu=PDF
+X-KDE-Submenu[fr]=PDF
+Icon=application-pdf
+Actions=convert;
+
+[Desktop Action convert]
+Name=Convert to PDF
+Name[fr]=Convertir en PDF
+Icon=x-office-document
+Exec=/home/dorian/.local/bin/desktop/desk pdf convert %F

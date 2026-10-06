@@ -1,0 +1,100 @@
+# Menu clic droit de Dolphin → desk pdf (fichiers PDF)
+# Fichier de service KF6 : doit être exécutable (chmod +x).
+[Desktop Entry]
+Type=Service
+MimeType=application/pdf;
+X-KDE-Protocols=file
+X-KDE-Submenu=PDF
+X-KDE-Submenu[fr]=PDF
+Icon=application-pdf
+Actions=sign;edit;merge;compress;split;rearrange;rotate;remove;extract;protect;unlock;pdf2img;extractimages;convert;open;
+
+[Desktop Action sign]
+Name=Sign PDF
+Name[fr]=Signer le PDF
+Icon=draw-calligraphic
+Exec=/home/dorian/.local/bin/desktop/desk pdf sign %F
+
+[Desktop Action edit]
+Name=Edit PDF
+Name[fr]=Modifier le PDF
+Icon=document-edit
+Exec=/home/dorian/.local/bin/desktop/desk pdf edit %F
+
+[Desktop Action merge]
+Name=Merge PDFs
+Name[fr]=Fusionner les PDF
+Icon=archive-insert
+Exec=/home/dorian/.local/bin/desktop/desk pdf merge %F
+
+[Desktop Action compress]
+Name=Compress
+Name[fr]=Compresser
+Icon=package
+Exec=/home/dorian/.local/bin/desktop/desk pdf compress %F
+
+[Desktop Action split]
+Name=Split
+Name[fr]=Découper
+Icon=edit-cut
+Exec=/home/dorian/.local/bin/desktop/desk pdf split %F
+
+[Desktop Action rearrange]
+Name=Rearrange pages
+Name[fr]=Réorganiser les pages
+Icon=view-sort-ascending
+Exec=/home/dorian/.local/bin/desktop/desk pdf rearrange %F
+
+[Desktop Action rotate]
+Name=Rotate pages
+Name[fr]=Pivoter des pages
+Icon=object-rotate-right
+Exec=/home/dorian/.local/bin/desktop/desk pdf rotate %F
+
+[Desktop Action remove]
+Name=Remove pages
+Name[fr]=Supprimer des pages
+Icon=edit-delete
+Exec=/home/dorian/.local/bin/desktop/desk pdf remove %F
+
+[Desktop Action extract]
+Name=Extract pages
+Name[fr]=Extraire des pages
+Icon=extract-archive
+Exec=/home/dorian/.local/bin/desktop/desk pdf extract %F
+
+[Desktop Action protect]
+Name=Protect with password
+Name[fr]=Protéger par mot de passe
+Icon=document-encrypt
+Exec=/home/dorian/.local/bin/desktop/desk pdf protect %F
+
+[Desktop Action unlock]
+Name=Unlock
+Name[fr]=Déverrouiller
+Icon=document-decrypt
+Exec=/home/dorian/.local/bin/desktop/desk pdf unlock %F
+
+[Desktop Action pdf2img]
+Name=PDF → images
+Name[fr]=PDF → images
+Icon=folder-pictures
+Exec=/home/dorian/.local/bin/desktop/desk pdf pdf2img %F
+
+[Desktop Action extractimages]
+Name=Extract images
+Name[fr]=Extraire les images
+Icon=insert-image
+Exec=/home/dorian/.local/bin/desktop/desk pdf extract-images %F
+
+[Desktop Action convert]
+Name=PDF → text
+Name[fr]=PDF → texte
+Icon=text-x-generic
+Exec=/home/dorian/.local/bin/desktop/desk pdf convert %F
+
+[Desktop Action open]
+Name=Open PDF toolbox
+Name[fr]=Ouvrir la boîte à outils PDF
+Icon=application-pdf
+Exec=/home/dorian/.local/bin/desktop/desk pdf gui %F

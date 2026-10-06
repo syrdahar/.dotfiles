@@ -1,0 +1,16 @@
+# Menu clic droit de Dolphin → desk pdf (images)
+# Fichier de service KF6 : doit être exécutable (chmod +x).
+[Desktop Entry]
+Type=Service
+MimeType=image/jpeg;image/png;image/webp;image/tiff;image/bmp;image/gif;image/heic;image/heif;image/avif;
+X-KDE-Protocols=file
+X-KDE-Submenu=PDF
+X-KDE-Submenu[fr]=PDF
+Icon=application-pdf
+Actions=img2pdf;
+
+[Desktop Action img2pdf]
+Name=Images → PDF
+Name[fr]=Images → PDF
+Icon=image-x-generic
+Exec=/home/dorian/.local/bin/desktop/desk pdf img2pdf %F

@@ -1,0 +1,291 @@
+#!/usr/bin/env bash
+# ──────────────────────────────────────────────────────────────
+#  desk pdf — boîte à outils PDF hors ligne (façon PDF24)
+#   desk pdf                       menu des 16 outils (+ ouvrir la fenêtre)
+#   desk pdf <outil> [fichier…]    lance un outil : fichiers demandés s'il n'y en a pas
+#                                  (presse-papier, fichiers récents, sélecteur), puis options
+#                                  (menu clic droit de Dolphin : desk pdf <outil> %F)
+#   desk pdf gui [--tool <outil>] [fichier…]   fenêtre (accueil, organiseur, éditeur, signature)
+#   desk pdf cli …                 moteur brut (python3 -m pdf.cli : tools, options, run…)
+#   desk pdf notify-done <outil> chemin…      notification de fin (boutons Ouvrir, Afficher, → Drive)
+#   desk pdf run <id> · --list (palette)
+#
+#  Outils : merge split compress edit sign convert img2pdf pdf2img extract-images
+#           protect unlock rotate remove extract rearrange webpage
+#  Sorties à côté de l'original (NDA.pdf → NDA-signed.pdf, puis -2, -3…) : jamais d'écrasement.
+#  Mots de passe : saisis dans rofi (masqués) et passés au moteur par stdin, jamais en argument.
+#  Tests : DESK_TEST=1 (notifs sur stderr) ; DESK_PDF_ANSWERS="réponse1\nréponse2…" remplace
+#  rofi (une ligne par question : valeur d'un choix, texte, mot de passe, yes/no, chemins séparés par « | »).
+# ──────────────────────────────────────────────────────────────
+source "$(dirname "$(readlink -f "$0")")/lib.sh"
+DESK_NAME=pdf
+SYNC=string:x-canonical-private-synchronous:desk-pdf
+LOGFILE=$DESK_STATE/pdf.log
+
+engine() { PYTHONPATH="$DESK_DIR${PYTHONPATH:+:$PYTHONPATH}" python3 -m pdf.cli "$@"; }
+esc() { sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g' <<<"$1"; }
+
+# ── Registre : un id par outil, lu dans le moteur (pdf/tools.py) ──
+declare -A LABEL KIND ACCEPTS
+TOOL_IDS=()
+while IFS=$'\t' read -r id label kind accepts _icon; do
+    TOOL_IDS+=("$id"); LABEL[$id]=$label; KIND[$id]=$kind; ACCEPTS[$id]=$accepts
+done < <(engine tools)
+(( ${#TOOL_IDS[@]} )) || die "$(t "Moteur PDF introuvable (python3 -m pdf.cli)" "PDF engine not found (python3 -m pdf.cli)")"
+
+ACTIONS=("open|PDF · Boîte à outils PDF (fenêtre) ‖ PDF · PDF toolbox (window)")
+for id in "${TOOL_IDS[@]}"; do
+    ACTIONS+=("$id|PDF · ${LABEL[$id]%% ‖ *} ‖ PDF · ${LABEL[$id]#* ‖ }")
+    eval "a_${id//-/_}() { tool_flow $id \"\$@\"; }"
+done
+a_open() { gui "$@"; }
+
+gui() { setsid -f env PYTHONPATH="$DESK_DIR" python3 -m pdf.cli gui "$@" >>"$LOGFILE" 2>&1; }
+
+# ── Questions (rofi, ou DESK_PDF_ANSWERS en test) ────────────
+ANSWERS=""
+if [[ -n ${DESK_PDF_ANSWERS+x} ]]; then
+    ANSWERS=$DESK_RUN/pdf.answers.$$
+    printf '%s\n' "$DESK_PDF_ANSWERS" >"$ANSWERS"
+    trap 'rm -f "$ANSWERS"' EXIT
+fi
+scripted() { [[ -n $ANSWERS ]]; }
+next_answer() {   # première réponse restante (code 1 s'il n'y en a plus = annulé)
+    [[ -s $ANSWERS ]] || return 1
+    head -n1 "$ANSWERS"; sed -i 1d "$ANSWERS"
+}
+
+# ask_choice "question" défaut "valeur␟libellé␞…" → valeur
+ask_choice() {
+    local q=$1 def=$2 raw=$3 i=0 sel=0 idx
+    scripted && { next_answer; return; }
+    local -a vals=() rows=()
+    while IFS=$'\x1f' read -r v l; do
+        [[ -n $v ]] || continue
+        vals+=("$v"); rows+=("$(bi_row "$l")"); [[ $v == "$def" ]] && sel=$i; i=$((i + 1))
+    done < <(tr '\036' '\n' <<<"$raw")
+    idx=$(printf '%s\n' "${rows[@]}" | menu "󰈦  $(bi "$q")" -format i -selected-row "$sel") || return 1
+    [[ -n $idx ]] || return 1
+    printf '%s' "${vals[$idx]}"
+}
+
+ask_text() {   # ask_text "question" "aide" [préremplissage]
+    scripted && { next_answer; return; }
+    local mesg; mesg=$(bi "$2")
+    menu "󰈦  $(bi "$1")" ${mesg:+-mesg "$(esc "$mesg")"} ${3:+-filter "$3"} </dev/null
+}
+
+ask_password() {   # ask_password "question" → mot de passe (jamais affiché ni journalisé)
+    scripted && { next_answer; return; }
+    rofi -dmenu -password -p "󰌾  $1" -theme "$DESK_THEME" -mesg "$(esc "${2:-}")" </dev/null
+}
+
+ask_bool() {   # ask_bool "question" défaut(yes|no) → yes | no
+    scripted && { next_answer; return; }
+    local no="$(t Non No) ‖ $(t No Non)" yes="$(t Oui Yes) ‖ $(t Yes Oui)" idx
+    idx=$(printf '%s\n%s\n' "$no" "$yes" | menu "󰈦  $(bi "$1") ?" -format i -selected-row "$([[ $2 == yes ]] && echo 1 || echo 0)") || return 1
+    [[ $idx == 1 ]] && echo yes || echo no
+}
+
+# ── Choix des fichiers ───────────────────────────────────────
+clip_files() {   # fichiers désignés par le presse-papier (text/uri-list de Dolphin, ou chemin en texte)
+    local s
+    if [[ -z ${DESK_CLIP_IN+x} ]] && wl-paste --list-types 2>/dev/null | grep -qx 'text/uri-list'; then
+        s=$(wl-paste --no-newline -t text/uri-list 2>/dev/null || true)
+    else
+        s=$(clip_get)
+    fi
+    python3 -c '
+import os, sys, urllib.parse as u
+for line in sys.stdin.read().splitlines():
+    line = line.strip()
+    if not line or line.startswith("#"): continue
+    if line.startswith("file://"): line = u.unquote(u.urlsplit(line).path)
+    line = os.path.expanduser(line)
+    if os.path.isfile(line): print(os.path.abspath(line))' <<<"$s"
+}
+
+accepted() {   # accepted <outil> fichier… → ceux dont l'extension convient
+    local id=$1 f ext; shift
+    local exts; exts=" $(engine exts "$id" | tr '\n' ' ') "
+    for f; do ext=".${f##*.}"; [[ $exts == *" ${ext,,} "* ]] && printf '%s\n' "$f"; done
+    return 0
+}
+
+pick_files() {   # pick_files <outil> → chemins (un par ligne)
+    local id=$1 multi=0 idx
+    [[ ${ACCEPTS[$id]} == pdfs || ${ACCEPTS[$id]} == images ]] && multi=1
+    if scripted; then next_answer | tr '|' '\n'; return; fi
+    local -a clip=() files=() rows=() kinds=() cf=() multiflag=() pickflag=()
+    (( multi )) && { multiflag=(-multi-select); pickflag=(--multi); }
+    mapfile -t cf < <(clip_files)
+    (( ${#cf[@]} )) && mapfile -t clip < <(accepted "$id" "${cf[@]}")
+    local -a fdext=(); local e
+    while read -r e; do fdext+=(-e "${e#.}"); done < <(engine exts "$id")
+    mapfile -t files < <(fd --type f --changed-within 90d --max-depth 5 "${fdext[@]}" \
+        -E .git -E node_modules -E .cache -E .local -E .mozilla -E .var -E .librewolf . "$HOME" \
+        --exec-batch stat -c '%Y %n' 2>/dev/null | sort -rn | head -n 400 | cut -d' ' -f2-)
+    kinds+=(browse); rows+=("󰉋  $(t "Parcourir…" "Browse…") ‖ $(t "Browse file dialog" "Parcourir sélecteur")")
+    if (( ${#clip[@]} )); then
+        local more=""; if (( ${#clip[@]} > 1 )); then more=" (+$(( ${#clip[@]} - 1 )))"; fi
+        kinds+=(clip); rows+=("󰅌  $(t "Presse-papier" "Clipboard") : $(tilde "${clip[0]}")$more ‖ $(t clipboard presse-papier)")
+    fi
+    for f in "${files[@]}"; do kinds+=(file); rows+=("$(tilde "$f")"); done
+    local mesg; mesg=$(t "Fichiers récents" "Recent files")
+    (( multi )) && mesg+=$(t " · Maj+Entrée : plusieurs (dans l'ordre choisi)" " · Shift+Enter: several (in the order picked)")
+    idx=$(printf '%s\n' "${rows[@]}" | menu "󰈦  $(bi "${LABEL[$id]}")" -format i "${multiflag[@]}" -mesg "$mesg") || return 1
+    local i
+    while read -r i; do
+        [[ -n $i ]] || continue
+        case ${kinds[$i]} in
+            browse) engine pick --tool "$id" "${pickflag[@]}" || return 1 ;;
+            clip)   printf '%s\n' "${clip[@]}" ;;
+            file)   printf '%s\n' "${files[$((i - ${#kinds[@]} + ${#files[@]}))]}" ;;
+        esac
+    done <<<"$idx"
+}
+
+ask_url() {
+    local c; c=$(clip_get | head -n1)
+    [[ $c =~ ^(https?://|file://|/|~/) ]] || c=""
+    ask_text "Adresse de la page (URL ou fichier .html) ‖ Page address (URL or .html file)" \
+        "Le PDF est enregistré dans ~/Downloads ‖ The PDF is saved in ~/Downloads" "$c"
+}
+
+# ── Options (schéma lu dans le moteur) ───────────────────────
+# remplit OPTS (--opt clé=valeur…) et NEW_PASSWORD
+ask_options() {
+    local id=$1 key kind label def when confirm required hint choices v p2
+    declare -gA VALS=(); OPTS=(); NEW_PASSWORD=""
+    while IFS=$'\x1d' read -r key kind label def when confirm required hint choices; do
+        if [[ -n $when ]] && [[ ${VALS[${when%%=*}]:-} != "${when#*=}" ]]; then continue; fi
+        case $kind in
+            choice)   v=$(ask_choice "$label" "$def" "$choices") || return 1 ;;
+            bool)     v=$(ask_bool "$label" "$def") || return 1 ;;
+            password)
+                local tries=0
+                while :; do
+                    v=$(ask_password "$(bi "$label")") || return 1
+                    [[ -n $v ]] || { notify -u low "$(t "Mot de passe vide" "Empty password")"; tries=$((tries + 1)); (( tries < 3 )) && continue; return 1; }
+                    [[ $confirm == true ]] || break
+                    p2=$(ask_password "$(t "Confirmer" "Confirm")" "$(t "Retape le même mot de passe" "Type the same password again")") || return 1
+                    [[ $v == "$p2" ]] && break
+                    notify -u normal -i dialog-warning-symbolic "$(t "Les mots de passe diffèrent" "Passwords do not match")"
+                    tries=$((tries + 1)); (( tries < 3 )) || return 1
+                done
+                NEW_PASSWORD=$v; VALS[$key]=set; continue ;;
+            *)        v=$(ask_text "$label" "$hint" "$def") || return 1
+                      if [[ $required == true && -z ${v// } ]]; then
+                          notify -u normal -i dialog-warning-symbolic "$(bi "$label")" "$(t "champ obligatoire" "required")"; return 1
+                      fi ;;
+        esac
+        VALS[$key]=$v; OPTS+=(--opt "$key=$v")
+    done < <(engine options "$id" | jq -r '.[] | [.key, .kind, .label, .default, ((.when // []) | join("=")),
+               .confirm, .required, .hint, (.choices | map(.[0] + "\u001f" + .[1]) | join("\u001e"))] | join("\u001d")')
+}
+
+# ── Exécution ────────────────────────────────────────────────
+# run_tool <outil> fichier…   (OPTS, NEW_PASSWORD déjà remplis)
+run_tool() {
+    local id=$1; shift
+    local err=$DESK_RUN/pdf.err.$$ out rc pw="" tries=0
+    local slow=0; [[ $id =~ ^(compress|convert|webpage|pdf2img|merge)$ ]] && slow=1
+    while :; do
+        (( slow )) && notify -u low -i document-save-symbolic -h "$SYNC" "PDF · $(bi "${LABEL[$id]}")" "$(t "En cours…" "Working…")"
+        rc=0
+        out=$(printf '%s\n%s\n' "$pw" "$NEW_PASSWORD" | engine run "$id" "${OPTS[@]}" --password-stdin "$@" 2>"$err") || rc=$?
+        [[ $rc == 3 ]] || break
+        tries=$((tries + 1))
+        (( tries <= 3 )) || { rm -f "$err"; die "$(t "Trop d'essais : mot de passe incorrect" "Too many attempts: wrong password")"; }
+        pw=$(ask_password "$(t "Mot de passe du PDF" "PDF password")" "$(head -n1 "$err")") || { rm -f "$err"; exit 0; }
+    done
+    local msg; msg=$(grep -v '^\(warning\|info\): ' "$err" | tail -n 3 || true)
+    local extra; extra=$(grep '^\(warning\|info\): ' "$err" | sed 's/^[a-z]*: //' || true)
+    rm -f "$err"
+    if [[ $rc != 0 ]]; then die "${msg:-$(t "échec" "failed") (code $rc)}"; fi
+    local -a paths=(); mapfile -t paths <<<"$out"; [[ -n ${paths[0]:-} ]] || paths=()
+    if (( ${#paths[@]} == 0 )); then
+        notify -u normal -i dialog-information-symbolic -h "$SYNC" "PDF · $(bi "${LABEL[$id]}")" "$(esc "${extra:-$(t "Aucun fichier créé" "No file created")}")"
+        return 0
+    fi
+    notify_done "$id" "$extra" "${paths[@]}"
+}
+
+# notify_done <outil> "texte en plus" chemin…  → notif avec Ouvrir · Afficher · → Drive
+notify_done() {
+    local id=$1 extra=$2; shift 2
+    local first=$1 body n=$#
+    body=$(esc "$(tilde "$first")")
+    if (( n > 1 )); then body+=" (+$((n - 1)))"; fi
+    if [[ -n $extra ]]; then body+=$'\n'$(esc "$extra"); fi
+    local title="PDF · $(bi "${LABEL[$id]:-$id}") ✓"
+    if [[ -n ${DESK_TEST:-} ]]; then notify "$title" "$body"; printf '%s\n' "$@"; return 0; fi
+    local q; q=$(printf ' %q' "$@")
+    setsid -f bash -c '
+        a=$(timeout --foreground 1h notify-send -a desk -i application-pdf -h "$1" \
+              -A "open=$2" -A "show=$3" -A "drive=→ Drive" "$4" "$5" 2>/dev/null)
+        case $a in
+            open)  xdg-open "$6" ;;
+            show)  dolphin --select "$6" ;;
+            drive) eval "desk drive send $7" ;;
+        esac
+    ' _ "$SYNC" "$(t Ouvrir Open)" "$(t Afficher Show)" "$title" "$body" "$first" "$q" >/dev/null 2>&1
+}
+
+# tool_flow <outil> [fichier…]
+tool_flow() {
+    local id=$1; shift
+    [[ -n ${KIND[$id]:-} ]] || die "$(t "Outil inconnu" "Unknown tool") : $id"
+    local -a files=("$@")
+
+    # entrées
+    if [[ ${ACCEPTS[$id]} == url ]]; then
+        if (( ${#files[@]} == 0 )); then
+            local u; u=$(ask_url) || exit 0
+            [[ -n ${u// } ]] || exit 0
+            files=("${u/#\~/$HOME}")
+        fi
+    else
+        if (( ${#files[@]} == 0 )); then
+            mapfile -t files < <(pick_files "$id") || exit 0
+            (( ${#files[@]} )) && [[ -n ${files[0]} ]] || exit 0
+        fi
+        local -a ok; mapfile -t ok < <(accepted "$id" "${files[@]}")
+        (( ${#ok[@]} == ${#files[@]} )) || {
+            (( ${#ok[@]} )) || die "$(t "Aucun fichier compatible avec" "No file compatible with") « $(bi "${LABEL[$id]}") »"
+            notify -u low "$(t "Fichiers ignorés (format)" "Skipped files (format)")" "$(( ${#files[@]} - ${#ok[@]} ))"
+            files=("${ok[@]}")
+        }
+    fi
+
+    # outils visuels → fenêtre
+    case ${KIND[$id]} in
+        editor|sign) gui --tool "$id" "${files[@]}"; return 0 ;;
+        organizer)
+            local q choice
+            if [[ $id == merge ]]; then
+                (( ${#files[@]} >= 2 )) || die "$(t "Il faut au moins deux PDF à fusionner" "Merging needs at least two PDFs")"
+                q="now"$'\x1f'"Fusionner dans cet ordre ‖ Merge in this order"$'\x1e'"gui"$'\x1f'"Ouvrir l'organiseur (réordonner, choisir les pages) ‖ Open the organizer (reorder, pick pages)"
+            else
+                q="gui"$'\x1f'"Ouvrir l'organiseur (glisser les miniatures) ‖ Open the organizer (drag thumbnails)"$'\x1e'"now"$'\x1f'"Inverser l'ordre des pages ‖ Reverse page order"
+            fi
+            choice=$(ask_choice "${LABEL[$id]}" "" "$q") || exit 0
+            [[ $choice == gui ]] && { gui --tool "$id" "${files[@]}"; return 0; } ;;
+    esac
+
+    OPTS=(); NEW_PASSWORD=""
+    ask_options "$id" || exit 0
+    run_tool "$id" "${files[@]}"
+}
+
+case "${1:-}" in
+    "")          menu_actions "󰈦  pdf" "$(t "Boîte à outils PDF · hors ligne · jamais d'écrasement" "PDF toolbox · offline · never overwrites")" ;;
+    gui)         shift; gui "$@" ;;
+    cli)         shift; engine "$@" ;;
+    notify-done) shift; notify_done "$1" "" "${@:2}" ;;
+    run)         shift; run_action "${1:?usage: desk pdf run <id>}" "${@:2}" ;;
+    --list)      list_actions ;;
+    -h|--help)   sed -n '3,20p' "$0" | sed 's/^#  \{0,1\}//' ;;
+    *)           [[ -n ${KIND[$1]:-} ]] || { sed -n '3,20p' "$0" | sed 's/^#  \{0,1\}//'; exit 1; }
+                 tool_flow "$@" ;;
+esac

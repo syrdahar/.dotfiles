@@ -57,8 +57,9 @@ action "Notes · Notes et TODO (~/notes) ‖ Notes · Notes and TODOs (~/notes)"
 action "Focus · Minuteur, pomodoro, mode focus ‖ Focus · Timer, pomodoro, focus mode"      cmd "desk focus"
 action "Capture · Menu captures (OCR, annotation, vidéo…) ‖ Screenshot · Capture menu (OCR, annotate, video…)" cmd "desk capture"
 action "Drive · Proton Drive (parcourir, envoyer, lien) ‖ Drive · Proton Drive (browse, upload, link)" cmd "desk drive"
+action "PDF · Boîte à outils PDF (fusionner, signer, compresser…) ‖ PDF · PDF toolbox (merge, sign, compress…)" cmd "desk pdf"
 # sous-actions de chaque module, lues dans les scripts (desk-<module> --list)
-for mod in project git docker ports procs mobile capture ai system notes focus claudenotify drive; do
+for mod in project git docker ports procs mobile capture ai system notes focus claudenotify drive pdf; do
     while IFS=$'\t' read -r id label; do
         case "$mod:$id" in
             project:pick|docker:containers|ports:ports|procs:cpu) continue ;;       # = menus ci-dessus

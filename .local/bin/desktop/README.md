@@ -30,6 +30,7 @@ In the leader, SUPER may stay pressed. Any other key cancels (and is swallowed).
 | `b` | Toggle btop scratchpad | Scratchpad btop | `desk scratch btop` |
 | `c` | Clipboard actions for the copied content (URL, JSON, JWT, trace, timestamp, text, generators) | Actions selon le contenu copié | `desk clip` |
 | `d` | Docker containers & compose stacks | Conteneurs et stacks Docker | `desk docker` |
+| `e` | Open / switch to a project (workspace + tmux + nvim) | Ouvrir / rejoindre un projet | `desk project` |
 | `f` | Proton Drive: browse, download, upload, public link, trash | Proton Drive : parcourir, télécharger, envoyer, lien | `desk drive` |
 | `g` | Git menu for the active terminal's repo | Menu git du dossier courant | `desk git` |
 | `i` | ChatGPT quick question (math, conversion, facts; `?…` = web search) | ChatGPT : question rapide (`?…` = recherche web) | `desk gpt` |
@@ -38,7 +39,7 @@ In the leader, SUPER may stay pressed. Any other key cancels (and is swallowed).
 | `m` | Mobile: scrcpy, emulator, adb reverse, RN dev menu | Mobile : scrcpy, émulateur, adb | `desk mobile` |
 | `n` | Notes & TODOs in `~/notes` | Notes et TODO | `desk notes` |
 | `o` | Claude Code session notifications (on/off, test) | Notifications des sessions Claude Code | `desk claudenotify` |
-| `p` | Open / switch to a project (workspace + tmux + nvim) | Ouvrir / rejoindre un projet | `desk project` |
+| `p` | PDF toolbox: merge, split, compress, edit, sign, convert, protect… (offline PDF24) | Boîte à outils PDF (fusionner, signer, compresser…) | `desk pdf` |
 | `q` | Calculator & unit conversions (qalc) | Calculatrice et conversions | `desk calc` |
 | `r` | Screenshots: OCR, annotate, window → clipboard, screen recording / GIF | Captures : OCR, annotation, vidéo | `desk capture` |
 | `s` | SSH to a host from `~/.ssh/config` | Connexion SSH | `desk ssh` |
@@ -72,12 +73,41 @@ Full, always-up-to-date list: `desk cheatsheet --print` (or `SUPER+Space` `h`).
 | `focus` | `desk focus timer 25` · `desk focus timer 1h30` · `desk focus pomodoro` · `desk focus status` |
 | `lang` | `desk lang` · `desk lang fr` · `desk lang toggle` |
 | `drive` | `desk drive browse /my-files/Docs` · `desk drive upload /my-files/Docs file.pdf` · `desk drive get /my-files/a.pdf` · `desk drive link /my-files/a.pdf` · `desk drive list` · Dolphin: right-click → Send to Proton Drive |
+| `pdf` | `desk pdf compress a.pdf` · `desk pdf merge a.pdf b.pdf` · `desk pdf gui --tool sign NDA.pdf` · `desk pdf cli run rotate --opt angle=90 a.pdf` · Dolphin: right-click → PDF → … |
 | `shot` | called by hyprshot (`-s -- desk-shot`) after a screenshot to file: notification with thumbnail + Open · Annotate · → Drive (`/my-files/Captures`, recordings → `/my-files/Enregistrements`) |
 | `claudenotify` | `desk claudenotify run toggle` · `desk claudenotify run test` · `hook` (called by Claude Code hooks) |
 
 Add `~/.local/bin/desktop` to your PATH if you want `desk` in the shell
 (it is **not** added automatically; modules are prefixed `desk-` so they never
 shadow `git`, `docker`, `ssh`…).
+
+## PDF toolbox (`desk pdf`, leader `p`)
+
+Offline PDF24: 16 tools, one Python engine (`pdf/`) shared by rofi, Dolphin and a PyQt6 window.
+Outputs go next to the original with a suffix (`NDA.pdf` → `NDA-signed.pdf`, then `-2`, `-3`…):
+nothing is ever overwritten; writes are atomic. Passwords are typed in rofi (hidden) or a Qt field
+and passed on stdin — never on a command line, never logged.
+
+| Tool | Engine | Output |
+|---|---|---|
+| merge · split · rotate · remove · extract · rearrange | pikepdf / PyMuPDF (lossless) | `-merged` · `-split/` · `-rotated` · `-removed` · `-extract` · `-reordered` |
+| compress (light 300 dpi · recommended 150 · strong 72) | Ghostscript + qpdf; dropped if not smaller | `-compressed` |
+| edit (text, highlight, shapes, pen, image, white-out, **true redaction**, AcroForm filling) | window · PyMuPDF | `-edited` (annotations stay editable unless “Flatten”) |
+| sign (drawn / imported signature, date, “Read and approved”, duplicate on pages) | window · always flattened | `-signed` · “Certified signature → Okular” |
+| convert (Office → PDF via LibreOffice · html/md/txt → PDF · PDF → text) | soffice / Qt WebEngine / pdftotext | `name.pdf` / `name.txt` |
+| img2pdf · pdf2img · extract-images | img2pdf (+ magick) · pdftoppm · pdfimages | `-images.pdf` · `-images/` · `-extracted/` |
+| protect (AES-256, optional no print/copy) · unlock | pikepdf | `-protected` · `-unlocked` |
+| webpage (URL or local .html, A4) | Qt WebEngine (offscreen) | `~/Downloads/<page title>.pdf` |
+
+- `desk pdf` menu · `desk pdf <tool> [files…]` (files asked if none: clipboard, recent files, file dialog) ·
+  `desk pdf gui [--tool <tool>] [files…]` window · Dolphin: right-click → **PDF** (PDFs, images, Office/html/md files).
+- Window: tiles (☆ favorites first), drop files anywhere; organizer (thumbnails: drag to reorder, Ctrl+←/→ rotate,
+  Del, extract selection, add PDFs, Ctrl+Z); editor (V T H R E L A P I W X tools, Ctrl+wheel zoom, Ctrl+S).
+- Engine CLI: `desk pdf cli tools | options <tool> | run <tool> [--opt k=v]… [--password-stdin] files…`
+  (exit 0 ok · 1 error · 2 usage · 3 password required/wrong).
+- Files: signatures `~/.local/share/desk/pdf/signatures/` (0600), favorites and log `~/.local/state/desk/pdf.{favorites,log}`,
+  design/plan `docs/specs|plans/2026-09-28-desk-pdf*`.
+- Tests: `cd ~/.local/bin/desktop && python3 -m pytest pdf/tests -q` · shell flows: `DESK_TEST=1 DESK_PDF_ANSWERS=$'180\n2' desk pdf rotate a.pdf`.
 
 ## Files
 
@@ -99,7 +129,8 @@ Changes to pre-existing files (everything else is new):
 `hyprland.conf` — line 46 (text cliphist watcher) commented + `source =` lines at the end;
 `keybinds.conf` line 121 — layout-prev moved to `SUPER+CTRL+Space`;
 `keybinds.conf` lines 191–196 — hyprshot file captures end with `-s -- ~/.local/bin/desktop/desk-shot` (own notification with buttons);
-`alacritty.toml` — `[selection] save_to_clipboard = true` (select = copy).
+`alacritty.toml` — `[selection] save_to_clipboard = true` (select = copy);
+`desktop-leader.conf` — `p` = PDF, projects moved to `e` (backup `*.bak-2026-09-28-pdf`).
 Backups: `~/.config/hypr.bak-2026-09-27/`, `~/.config/rofi.bak-2026-09-27/`, `alacritty.toml.bak-2026-09-27`.
 
 ## Security
@@ -162,3 +193,5 @@ slurp, hyprshot, satty, tesseract + tesseract-data-{fra,eng}, imagemagick,
 wf-recorder, ffmpeg, libqalculate (qalc), go-yq, glow, bat, qrencode, fd, tmux,
 alacritty, neovim, gh, docker, scrcpy, android-tools, networkmanager, bluez-utils,
 pipewire-pulse (pactl), swaync, libnotify, claude (Claude Code), codex (Codex CLI, logged in with ChatGPT).
+PDF: python-pymupdf, python-pikepdf, qpdf, img2pdf, ghostscript, poppler, python-pyqt6(-webengine),
+python-markdown, python-numpy; optional libreoffice-fresh (Office → PDF), okular (certified signature).

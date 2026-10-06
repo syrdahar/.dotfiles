@@ -1,0 +1,14 @@
+# Menu clic droit de Dolphin → desk drive send (choix du dossier distant dans rofi, puis envoi)
+# Fichier de service KF6 : doit être exécutable (chmod +x).
+[Desktop Entry]
+Type=Service
+MimeType=all/all;
+X-KDE-Protocols=file
+Actions=sendToProtonDrive;
+X-KDE-Priority=TopLevel
+
+[Desktop Action sendToProtonDrive]
+Name=Send to Proton Drive
+Name[fr]=Envoyer vers Proton Drive
+Icon=folder-remote
+Exec=/home/dorian/.local/bin/desktop/desk drive send %F
