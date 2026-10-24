@@ -1,0 +1,20 @@
+{
+ "name": "everforest",
+ "source": "preset",
+ "colors": {
+  "base": "#2d353b",
+  "mantle": "#343f44",
+  "surface": "#3d484d",
+  "overlay": "#7a8478",
+  "text": "#d3c6aa",
+  "subtext": "#9da9a0",
+  "cyan": "#83c092",
+  "blue": "#7fbbb3",
+  "magenta": "#d699b6",
+  "pink": "#d699b6",
+  "gold": "#dbbc7f",
+  "orange": "#e69875",
+  "red": "#e67e80",
+  "green": "#a7c080"
+ }
+}

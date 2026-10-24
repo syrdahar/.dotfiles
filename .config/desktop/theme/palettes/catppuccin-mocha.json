@@ -1,0 +1,20 @@
+{
+ "name": "catppuccin-mocha",
+ "source": "preset",
+ "colors": {
+  "base": "#1e1e2e",
+  "mantle": "#313244",
+  "surface": "#45475a",
+  "overlay": "#6c7086",
+  "text": "#cdd6f4",
+  "subtext": "#a6adc8",
+  "cyan": "#89dcfe",
+  "blue": "#89b4fa",
+  "magenta": "#cba6f7",
+  "pink": "#f5c2e7",
+  "gold": "#f9e2af",
+  "orange": "#fab387",
+  "red": "#f38ba8",
+  "green": "#a6e3a1"
+ }
+}

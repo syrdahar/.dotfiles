@@ -1,0 +1,28 @@
+/* Sélecteur de fond d'écran (desk wall pick) : grille de miniatures 3 × 3, thème neon et look actifs.
+   Couleurs uniquement par variables de la palette (@cyan, @surface…). */
+@import "~/.config/rofi/neon.rasi"
+
+window   { width: 660px; border-radius: 14px; }
+mainbox  { padding: 8px; spacing: 6px; }
+listview {
+    columns: 3;
+    lines: 3;
+    fixed-columns: true;
+    fixed-height: false;
+    flow: horizontal;     /* remplit ligne par ligne : 3 images = 1 rangée */
+    spacing: 8px;
+}
+element {
+    orientation: vertical;
+    padding: 6px;
+    spacing: 4px;
+    border-radius: 9px;
+}
+element-icon {
+    enabled: true;
+    size: 180px;
+}
+element-text {
+    horizontal-align: 0.5;
+    font: "JetBrainsMono Nerd Font Propo 8";
+}

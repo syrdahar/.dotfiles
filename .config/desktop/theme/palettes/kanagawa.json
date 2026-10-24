@@ -1,0 +1,20 @@
+{
+ "name": "kanagawa",
+ "source": "preset",
+ "colors": {
+  "base": "#1f1f28",
+  "mantle": "#2a2a37",
+  "surface": "#363646",
+  "overlay": "#727169",
+  "text": "#dcd7ba",
+  "subtext": "#c8c093",
+  "cyan": "#7fb4ca",
+  "blue": "#7e9cd8",
+  "magenta": "#957fb8",
+  "pink": "#d27e99",
+  "gold": "#e6c384",
+  "orange": "#ff9e3b",
+  "red": "#e46876",
+  "green": "#98bb6c"
+ }
+}

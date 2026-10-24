@@ -1,0 +1,9 @@
+/* Look "flat" : fonds opaques pleins, liseré discret, pas de reflet clair */
+@define-color bar_bg      alpha(@base, 0.98);
+@define-color island_bg   alpha(@mantle, 0.98);
+@define-color chip_bg     alpha(@mantle, 0.98);
+@define-color hover_bg    alpha(@surface, 0.98);
+@define-color edge        alpha(@cyan, 0.18);
+@define-color edge_hi     alpha(@text, 0.0);
+@define-color shade_dark  alpha(#05030c, 0.30);
+@define-color shade_light alpha(@text, 0.0);

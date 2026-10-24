@@ -59,11 +59,18 @@ action "Capture · Menu captures (OCR, annotation, vidéo…) ‖ Screenshot · 
 action "Drive · Proton Drive (parcourir, envoyer, lien) ‖ Drive · Proton Drive (browse, upload, link)" cmd "desk drive"
 action "PDF · Boîte à outils PDF (fusionner, signer, compresser…) ‖ PDF · PDF toolbox (merge, sign, compress…)" cmd "desk pdf"
 action "Drop · Partage réseau local (texte, fichiers, QR) ‖ Drop · LAN sharing (text, files, QR)" cmd "desk drop"
+
+# ── Thème & fond d'écran (desk theme / desk wall) ────────────
+action "Thème · Menu thème & fond (palette · look · fond) ‖ Theme · Theme & wallpaper menu (palette · look · wallpaper)" cmd "desk theme"
+action "Fond · Choisir (miniatures) ‖ Wallpaper · Pick (thumbnails)"                    cmd "desk wall pick"
+action "Fond · Aléatoire ‖ Wallpaper · Random"                                          cmd "desk wall random"
+action "Fond · Suivant ‖ Wallpaper · Next"                                              cmd "desk wall next"
+action "Fond · Rotation auto on/off ‖ Wallpaper · Auto rotation on/off"                 cmd "desk wall rotate toggle"
 action "Dictée · Démarrer / arrêter (texte tapé au curseur) ‖ Dictation · Start / stop (text typed at cursor)" bind "Dictée · Démarrer / arrêter (texte tapé au curseur) ‖ Dictation · Start / stop (text typed at cursor)"
 action "Dictée · Avec nettoyage IA (ollama) ‖ Dictation · With AI cleanup (ollama)"   bind "Dictée · Démarrer / arrêter avec nettoyage IA (ollama) ‖ Dictation · Start / stop with AI cleanup (ollama)"
 action "Dictée · Annuler l'enregistrement ‖ Dictation · Cancel recording"            bind "Dictée · Annuler l'enregistrement en cours ‖ Dictation · Cancel current recording"
 # sous-actions de chaque module, lues dans les scripts (desk-<module> --list)
-for mod in project git docker ports procs mobile capture ai system notes focus claudenotify drive pdf drop; do
+for mod in project git docker ports procs mobile capture ai system notes focus claudenotify drive pdf drop theme; do
     while IFS=$'\t' read -r id label; do
         case "$mod:$id" in
             project:pick|docker:containers|ports:ports|procs:cpu) continue ;;       # = menus ci-dessus
@@ -71,6 +78,8 @@ for mod in project git docker ports procs mobile capture ai system notes focus c
                 continue ;;                                                         # = tes binds, listés plus bas
             system:mic|system:dnd|system:night|system:lock|system:power|system:reload|notes:scratch|notes:quick)
                 continue ;;                                                         # idem
+            theme:wall-pick|theme:wall-random|theme:wall-next|theme:wall-rotate)
+                continue ;;                                                         # = actions « Fond » ci-dessus
         esac
         action "$label" cmd "desk $mod run $id"
     done < <("$DESK_DIR/desk-$mod" --list)

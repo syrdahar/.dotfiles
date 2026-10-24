@@ -1,0 +1,167 @@
+#!/usr/bin/env bash
+# ──────────────────────────────────────────────────────────────
+#  desk theme — palette (auto depuis le fond, ou preset) et look
+#   desk theme                   menu (fond · palette · look)          [leader Y]
+#   desk theme apply [--quiet]   recalcule la palette active, re-colore, recharge
+#   desk theme palette auto|<preset>   palette « auto » (depuis le fond) ou un preset
+#   desk theme palette list      liste des presets
+#   desk theme look <nom>        look (neon glass flat aurora retro zen) via rice.sh
+#   desk theme status            palette= look= wallpaper= rotate=
+#   desk theme --list | run <id> actions de la palette (palette-*, look-*, wall-*)
+#  Les fichiers colorés sont générés depuis ~/.config/desktop/theme/sources/ :
+#  éditer la source puis « desk theme apply ». Détails : README (Theme & wallpaper).
+# ──────────────────────────────────────────────────────────────
+source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/lib.sh"
+# shellcheck source=theme/state.sh
+source "$DESK_DIR/theme/state.sh"
+DESK_NAME=theme
+LOOKS=(neon glass flat aurora retro zen)
+
+usage() {
+    sed -n '3,10p' "${BASH_SOURCE[0]}" | sed 's/^#  \{0,1\}//'
+}
+
+current_look() { basename "$(readlink ~/.config/hypr/look.conf 2>/dev/null || echo none)" .conf; }
+mk() { if [[ $1 == "$2" ]]; then printf '●'; else printf '○'; fi; }
+
+# apply [--quiet] : palette active → recolor → rechargement (Hyprland, barre, notifications, osd)
+apply() {
+    local quiet=0 img out drift name swatch wp
+    [[ ${1:-} == --quiet ]] && quiet=1
+    mkdir -p "$DESK_RUN" "$THEME_STATE_DIR"
+    exec 9>"$DESK_RUN/theme.lock"
+    flock -w 10 9 || die "$(t "Thème occupé (apply en cours)" "Theme busy (apply running)")"
+
+    if [[ $(state_get palette auto) == auto ]]; then
+        img=$(state_get wallpaper "")
+        [[ -n $img && -f $img ]] || img=$(readlink -f "$WALL_CUR" 2>/dev/null || true)
+        if [[ -n $img && -f $img ]]; then
+            python3 -I "$THEME_DIR/palette.py" auto "$img" >"$PAL_JSON.new" \
+                && mv -f "$PAL_JSON.new" "$PAL_JSON" \
+                || die "$(t "Palette auto impossible" "Auto palette failed") : $(basename "$img")"
+        else
+            cp -f "$PAL_DIR/neon-graffiti.json" "$PAL_JSON"
+        fi
+    else
+        [[ -f $PAL_DIR/$(state_get palette).json ]] \
+            || die "$(t "Palette introuvable" "Palette not found") : $(state_get palette)"
+        cp -f "$PAL_DIR/$(state_get palette).json" "$PAL_JSON"
+    fi
+
+    out=$(python3 -I "$THEME_DIR/recolor.py" render "$PAL_JSON") \
+        || die "$(t "Rendu des couleurs échoué (recolor.py)" "Color rendering failed (recolor.py)")"
+    drift=$(sed -n 's/^DRIFT \([^ ]*\).*/\1/p' <<<"$out" | paste -sd, - | sed 's/,/, /g' || true)
+    if [[ -n $drift ]]; then
+        notify -u normal -i dialog-warning-symbolic \
+            "$(t "Thème · fichiers édités à la main" "Theme · hand-edited files")" \
+            "$(t "Éditez la source dans ~/.config/desktop/theme/sources/ puis « desk theme apply » ; copie gardée en *.bak-theme-*" \
+                 "Edit the source in ~/.config/desktop/theme/sources/ then run « desk theme apply » ; copy kept as *.bak-theme-*")
+$drift"
+    fi
+
+    hyprctl reload >/dev/null
+    ~/.config/hypr/scripts/wm.sh reapply
+    pkill -SIGUSR2 -x waybar || true
+    timeout 2 swaync-client -rs >/dev/null 2>&1 || true
+    pkill -x swayosd-server || true
+    # relancé par Hyprland : hors du cgroup d'un service systemd (rotation) et sans nos verrous
+    hyprctl dispatch exec swayosd-server >/dev/null || true
+
+    (( quiet )) && return 0
+    name=$(jq -r '.name' "$PAL_JSON")
+    swatch=$DESK_RUN/theme-swatch.png
+    python3 -I "$THEME_DIR/palette.py" swatch "$PAL_JSON" "$swatch" >/dev/null 2>&1 || swatch=""
+    wp=$(state_get wallpaper "")
+    notify -u low ${swatch:+-i "$swatch"} -h string:x-canonical-private-synchronous:desk-theme \
+        "$(t Thème Theme) · $(t Palette Palette) $name" \
+        "$(t Look Look) : $(current_look) · $(t Fond Wallpaper) : $(basename "${wp:-none}")"
+}
+
+set_palette() {   # set_palette auto|<preset>
+    local p=$1 list
+    if [[ $p != auto ]]; then
+        list=$(python3 -I "$THEME_DIR/palette.py" list)
+        grep -qx -- "$p" <<<"$list" || die "$(t "Palette inconnue" "Unknown palette") : $p"
+    fi
+    state_set palette "$p"
+    apply
+}
+
+set_look() { exec "$HOME/.config/hypr/scripts/rice.sh" look "$1"; }
+
+status() {
+    printf 'palette=%s\nlook=%s\nwallpaper=%s\nrotate=%s\n' \
+        "$(state_get palette auto)" "$(current_look)" "$(state_get wallpaper "-")" "$(state_get rotate on)"
+}
+
+# Actions (--list / run) : palette-*, look-*, wall-* (délégués à desk-wall)
+list_ids() {
+    echo "palette-auto|Thème · Palette auto (depuis le fond) ‖ Theme · Palette auto (from wallpaper)"
+    local p l
+    while read -r p; do
+        echo "palette-$p|Thème · Palette $p ‖ Theme · Palette $p"
+    done < <(python3 -I "$THEME_DIR/palette.py" list)
+    for l in "${LOOKS[@]}"; do echo "look-$l|Thème · Look $l ‖ Theme · Look $l"; done
+    echo "wall-pick|Fond · Choisir (miniatures) ‖ Wallpaper · Pick (thumbnails)"
+    echo "wall-random|Fond · Aléatoire ‖ Wallpaper · Random"
+    echo "wall-next|Fond · Suivant ‖ Wallpaper · Next"
+    echo "wall-rotate|Fond · Rotation auto on/off ‖ Wallpaper · Auto rotation on/off"
+}
+
+list_actions_tsv() {
+    local id label
+    while IFS='|' read -r id label; do printf '%s\t%s\n' "$id" "$label"; done < <(list_ids)
+}
+
+dispatch() {   # dispatch ID
+    case $1 in
+        palette-*)   set_palette "${1#palette-}" ;;
+        look-*)      set_look "${1#look-}" ;;
+        wall-pick|wall-random|wall-next) "$DESK_DIR/desk-wall" "${1#wall-}" ;;
+        wall-rotate) "$DESK_DIR/desk-wall" rotate toggle ;;
+        wall-folder) setsid -f xdg-open "$WALL_DIR" >/dev/null 2>&1 ;;
+        *)           die "$(t "Action inconnue" "Unknown action") : $1" ;;
+    esac
+}
+
+menu_main() {
+    local -a ids=() rows=()
+    local pal look rot p l interval="${DESK_WALL_INTERVAL:-30min}"
+    pal=$(state_get palette auto); look=$(current_look); rot=$(state_get rotate on)
+    # add ID MARQUE « fr ‖ en » : la marque (● / ○ / blanc) précède les deux libellés
+    add() { ids+=("$1"); rows+=("$2  ${3%% ‖ *} ‖ $2  ${3#* ‖ }"); }
+
+    add wall-pick    " " "Fond · Choisir (miniatures) ‖ Wallpaper · Pick (thumbnails)"
+    add wall-random  " " "Fond · Aléatoire ‖ Wallpaper · Random"
+    add wall-next    " " "Fond · Suivant ‖ Wallpaper · Next"
+    add wall-rotate  "$(mk "$rot" on)" "Fond · Rotation auto ($interval) ‖ Wallpaper · Auto rotation ($interval)"
+    add wall-folder  " " "Fond · Ouvrir le dossier ‖ Wallpaper · Open folder"
+    add palette-auto "$(mk "$pal" auto)" "Palette · auto (depuis le fond) ‖ Palette · auto (from wallpaper)"
+    while read -r p; do
+        add "palette-$p" "$(mk "$pal" "$p")" "Palette · $p ‖ Palette · $p"
+    done < <(python3 -I "$THEME_DIR/palette.py" list)
+    for l in "${LOOKS[@]}"; do add "look-$l" "$(mk "$look" "$l")" "Look · $l ‖ Look · $l"; done
+
+    local idx
+    idx=$(for r in "${rows[@]}"; do bi_row "$r"; done \
+        | menu "$(bi '󰏘  thème & fond ‖ theme & wallpaper')" -format i) || exit 0
+    [[ -n $idx ]] || exit 0
+    dispatch "${ids[$idx]}"
+}
+
+case "${1:-}" in
+    ""|menu)  menu_main ;;
+    apply)    shift; apply "${1:-}" ;;
+    palette)
+        case "${2:-}" in
+            list) python3 -I "$THEME_DIR/palette.py" list ;;
+            ""|-h|--help) usage; exit 1 ;;
+            *)    set_palette "$2" ;;
+        esac ;;
+    look)     [[ -n ${2:-} ]] || { usage; exit 1; }; set_look "$2" ;;
+    status)   status ;;
+    run)      shift; dispatch "${1:?id requis}" ;;
+    --list)   list_actions_tsv ;;
+    -h|--help) usage ;;
+    *)        usage; exit 1 ;;
+esac

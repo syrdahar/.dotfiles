@@ -1,0 +1,20 @@
+{
+ "name": "rose-pine",
+ "source": "preset",
+ "colors": {
+  "base": "#191724",
+  "mantle": "#1f1d2e",
+  "surface": "#26233a",
+  "overlay": "#6e6a86",
+  "text": "#e0def4",
+  "subtext": "#908caa",
+  "cyan": "#9ccfd8",
+  "blue": "#31748f",
+  "magenta": "#c4a7e7",
+  "pink": "#ebbcba",
+  "gold": "#f6c177",
+  "orange": "#f6c177",
+  "red": "#eb6f92",
+  "green": "#95b1ac"
+ }
+}

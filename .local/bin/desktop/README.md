@@ -48,6 +48,7 @@ In the leader, SUPER may stay pressed. Any other key cancels (and is swallowed).
 | `v` | Drop: LAN sharing of text & files with your other devices (start/stop, QR, send clipboard / files) | Drop : partage texte et fichiers sur le réseau local | `desk drop` |
 | `w` | Web search with prefixes (`gh ghc mdn npm so aur pac aw yt`) | Recherche web avec préfixes | `desk web` |
 | `x` | System: audio output/input, Wi-Fi, Bluetooth, VPN, DND, reload, lock, power | Système : audio, Wi-Fi, Bluetooth, VPN… | `desk system` |
+| `y` | Theme & wallpaper: palette (auto from the wallpaper or a preset), look, wallpaper picker and rotation | Thème et fond d'écran : palette (auto depuis le fond ou preset), look, choix du fond et rotation | `desk theme` |
 | `z` | Focus: timer, pomodoro, focus mode (DND + hidden bar) | Focus : minuteur, pomodoro, mode focus | `desk focus` |
 
 Full, always-up-to-date list: `desk cheatsheet --print` (or `SUPER+Space` `h`).
@@ -154,6 +155,32 @@ Text is typed at the cursor (wtype), after the modifiers are released; clipboard
   `systemctl --user restart voxtype`. Binds: `~/.config/hypr/desktop-dictation.conf`.
 - AI model: `DESK_DICTATE_MODEL=…` in `desk.conf` (default `llama3.1:8b`, CPU).
 - Checks: `voxtype info accel` (GPU?) · `voxtype status` · `journalctl --user -u voxtype -f`.
+
+## Theme & wallpaper (`desk theme`, `desk wall`, leader `y`)
+
+The colours of the whole rice follow the **wallpaper** (`palette auto`), or follow a **preset**
+palette (`catppuccin-mocha`, `tokyo-night`, `rose-pine`, `gruvbox-dark`, `nord`, `dracula`,
+`kanagawa`, `everforest`, `neon-graffiti`). Wallpapers are shown with **awww** (animated
+transitions) instead of hyprpaper (commented in `hyprland.conf`, not deleted).
+
+- **Palette**: `auto` = colours computed from the current wallpaper (cache in `~/.cache/desk/theme/`);
+  a preset is fixed. `desk theme palette auto|<preset>` · `desk theme palette list`.
+- **Looks**: `neon glass flat aurora retro zen` (`rice.sh look <name>`, or `desk theme look <name>`).
+  Each look has its own files for the 8 apps and `looks/post-<look>.conf` (animations, via
+  `~/.config/hypr/look-post.conf`).
+- **Wallpapers**: `DESK_WALL_DIR` in `desk.conf` (default `~/Images/Wallpapers`, jpg / png / webp).
+  `desk wall pick` (thumbnail grid, transition from the cursor) · `random` · `next` · `set <image>`.
+  The current one is `~/.cache/desk/wall/current` (also used by hyprlock).
+- **Rotation**: `desk wall rotate on|off|toggle|status` → systemd user timer `desk-wall-rotate.timer`
+  every `DESK_WALL_INTERVAL` (default `30min`). Login: random wallpaper (`desk wall login`).
+- **Watch**: `desk wall watch` (autostart) shows any image copied into the wallpaper folder.
+- **Colour files are generated**: the coloured config files (hyprland, waybar, swaync, swayosd, rofi,
+  alacritty, Kvantum, hyprlock…) are rendered from `~/.config/desktop/theme/sources/` (listed in
+  `manifest.txt`). **Edit the source, then `desk theme apply`**. A manual edit of a live file is
+  kept as `*.bak-theme-<date>` on the next render, with a notification.
+- Check without writing: `python3 -I ~/.local/bin/desktop/theme/recolor.py render <palette.json> --check`
+  (`same` / `DIFF` per file). Palette JSON: `python3 -I theme/palette.py auto <image>`.
+- Tests: `cd ~/.local/bin/desktop/theme && python3 -I -m pytest tests -q`.
 
 ## Files
 

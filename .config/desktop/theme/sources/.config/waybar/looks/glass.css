@@ -1,0 +1,11 @@
+/* Look "glass" : verre dépoli néomorphique
+   fond clair translucide (blur Hyprland derrière), arête lumineuse
+   en haut à gauche, double ombre douce sombre/claire. */
+@define-color bar_bg      alpha(#2a2346, 0.42);
+@define-color island_bg   alpha(#2a2346, 0.46);
+@define-color chip_bg     alpha(#0b0818, 0.38);
+@define-color hover_bg    alpha(#e6ddf0, 0.08);
+@define-color edge        alpha(#e6ddf0, 0.16);
+@define-color edge_hi     alpha(#ffffff, 0.10);
+@define-color shade_dark  alpha(#05030c, 0.60);
+@define-color shade_light alpha(#b9a6ff, 0.11);

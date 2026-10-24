@@ -1,0 +1,5 @@
+{"name": "neon-graffiti", "source": "preset",
+ "colors": {"base": "#100c1f", "mantle": "#1a1530", "surface": "#2a2346", "overlay": "#493459",
+            "text": "#e6ddf0", "subtext": "#c2b1c0", "cyan": "#29b4d7", "blue": "#3a7bd5",
+            "magenta": "#c23d9e", "pink": "#ff5fb7", "gold": "#e2b620", "orange": "#f57c2a",
+            "red": "#e0485a", "green": "#5fd7a7"}}

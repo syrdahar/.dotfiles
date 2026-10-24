@@ -1,0 +1,6 @@
+[Unit]
+Description=desk wall : fond d'écran suivant (rotation)
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/desktop/desk wall next

@@ -1,0 +1,3 @@
+# Look "flat" : opaque
+[window]
+opacity = 1.0

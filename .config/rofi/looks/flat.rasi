@@ -1,0 +1,22 @@
+/* Look "flat" : bordure 1 px cyan, coins peu arrondis */
+window {
+    border: 1px;
+    border-color: @cyan;
+    border-radius: 6px;
+}
+
+inputbar {
+    border-radius: 4px;
+}
+
+message {
+    border-radius: 4px;
+}
+
+element {
+    border-radius: 4px;
+}
+
+button {
+    border-radius: 4px;
+}

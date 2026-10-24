@@ -3,7 +3,7 @@
 #  rice.sh — bascule du mode de barre et du look global
 #
 #  rice.sh bar  {islands|floating|docked|next}
-#  rice.sh look {neon|glass|toggle}
+#  rice.sh look {neon|glass|flat|aurora|retro|zen|toggle}
 #  rice.sh stats {claude|hw|toggle}  widget de droite : quotas Claude ou CPU/RAM
 #  rice.sh menu        menu rofi
 #  rice.sh status
@@ -15,13 +15,14 @@ set -euo pipefail
 
 C=~/.config
 BARS=(islands floating docked)
-LOOKS=(neon glass)
+LOOKS=(neon glass flat aurora retro zen)
 STATS=(claude hw)
 
 # Symlinks pilotés par le look : "dossier lien cible-sans-extension.ext"
 LOOK_LINKS=(
     "$C/hypr      look.conf          looks/%s.conf"
     "$C/hypr      hyprlock-look.conf looks/hyprlock-%s.conf"
+    "$C/hypr      look-post.conf     looks/post-%s.conf"
     "$C/waybar    look.css           looks/%s.css"
     "$C/swaync    look.css           looks/%s.css"
     "$C/rofi      look.rasi          looks/%s.rasi"
@@ -60,6 +61,7 @@ set_look() {
     ~/.config/hypr/scripts/wm.sh reapply
     pkill -SIGUSR2 -x waybar || true
     timeout 2 swaync-client -rs >/dev/null 2>&1 || true
+    pkill -x swayosd-server || true; hyprctl dispatch exec swayosd-server >/dev/null
     notify "Look · $look"
 }
 
@@ -87,12 +89,14 @@ menu() {
             for b in "${BARS[@]}";  do [[ $b == "$bar"  ]] && m="●" || m="○"; echo "$m  barre · $b"; done
             for l in "${LOOKS[@]}"; do [[ $l == "$look" ]] && m="●" || m="○"; echo "$m  look · $l"; done
             for s in "${STATS[@]}"; do [[ $s == "$(current_stats)" ]] && m="●" || m="○"; echo "$m  stats · $s"; done
+            echo "󰸉  thème & fond…"
         } | rofi -dmenu -i -p "󰏘  rice" -theme ~/.config/rofi/powermenu.rasi
     ) || exit 0
     case "$choice" in
         *"barre · "*) set_bar  "${choice##* }" ;;
         *"look · "*)  set_look "${choice##* }" ;;
         *"stats · "*) set_stats "${choice##* }" ;;
+        *"thème & fond"*) ~/.local/bin/desktop/desk theme menu ;;
     esac
 }
 

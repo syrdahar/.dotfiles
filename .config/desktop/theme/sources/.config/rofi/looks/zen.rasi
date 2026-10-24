@@ -1,0 +1,21 @@
+/* Look "zen" : pas de bordure, coins très arrondis */
+window {
+    border: 0px;
+    border-radius: 18px;
+}
+
+inputbar {
+    border-radius: 12px;
+}
+
+message {
+    border-radius: 12px;
+}
+
+element {
+    border-radius: 12px;
+}
+
+button {
+    border-radius: 12px;
+}

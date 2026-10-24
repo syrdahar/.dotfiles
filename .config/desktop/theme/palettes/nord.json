@@ -1,0 +1,20 @@
+{
+ "name": "nord",
+ "source": "preset",
+ "colors": {
+  "base": "#2e3440",
+  "mantle": "#3b4252",
+  "surface": "#434c5e",
+  "overlay": "#4c566a",
+  "text": "#eceff4",
+  "subtext": "#d8dee9",
+  "cyan": "#88c0d0",
+  "blue": "#81a1c1",
+  "magenta": "#b48ead",
+  "pink": "#b48ead",
+  "gold": "#ebcb8b",
+  "orange": "#d08770",
+  "red": "#bf616a",
+  "green": "#a3be8c"
+ }
+}

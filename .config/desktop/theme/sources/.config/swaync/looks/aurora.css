@@ -1,0 +1,12 @@
+/* swaync · look "aurora" : verre translucide, liseré magenta */
+:root {
+  --card-bg:      rgba(42, 35, 70, 0.50);
+  --card-edge:    rgba(194, 61, 158, 0.35);
+  --card-hi:      rgba(230, 221, 240, 0.08);
+  --chip-bg:      rgba(16, 12, 31, 0.40);
+  --raise-bg:     rgba(230, 221, 240, 0.06);
+  --shade-dark:   rgba(5, 3, 12, 0.55);
+  --shade-light:  rgba(41, 180, 215, 0.12);
+  --panel-bg:     rgba(42, 35, 70, 0.45);
+  --panel-edge:   rgba(194, 61, 158, 0.35);
+}

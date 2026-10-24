@@ -1,0 +1,20 @@
+{
+ "name": "tokyo-night",
+ "source": "preset",
+ "colors": {
+  "base": "#1a1b26",
+  "mantle": "#292e42",
+  "surface": "#3b4261",
+  "overlay": "#565f89",
+  "text": "#c0caf5",
+  "subtext": "#a9b1d6",
+  "cyan": "#7dcfff",
+  "blue": "#7aa2f7",
+  "magenta": "#bb9af7",
+  "pink": "#ff007c",
+  "gold": "#e0af68",
+  "orange": "#ff9e64",
+  "red": "#f7768e",
+  "green": "#9ece6a"
+ }
+}

@@ -1,0 +1,9 @@
+/* Look "zen" : fonds quasi transparents, bordures presque invisibles */
+@define-color bar_bg      alpha(@base, 0.35);
+@define-color island_bg   alpha(@base, 0.40);
+@define-color chip_bg     alpha(@mantle, 0.30);
+@define-color hover_bg    alpha(@text, 0.04);
+@define-color edge        alpha(@text, 0.06);
+@define-color edge_hi     alpha(@text, 0.0);
+@define-color shade_dark  alpha(#05030c, 0.20);
+@define-color shade_light alpha(@text, 0.03);

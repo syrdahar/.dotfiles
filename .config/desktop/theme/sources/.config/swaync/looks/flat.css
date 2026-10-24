@@ -1,0 +1,12 @@
+/* swaync · look "flat" : cartes opaques, liseré discret, sans reflet */
+:root {
+  --card-bg:      rgba(16, 12, 31, 0.98);
+  --card-edge:    rgba(41, 180, 215, 0.18);
+  --card-hi:      rgba(255, 255, 255, 0.0);
+  --chip-bg:      rgba(26, 21, 48, 0.98);
+  --raise-bg:     #2a2346;
+  --shade-dark:   rgba(5, 3, 12, 0.30);
+  --shade-light:  rgba(255, 255, 255, 0.0);
+  --panel-bg:     rgba(16, 12, 31, 0.98);
+  --panel-edge:   rgba(41, 180, 215, 0.18);
+}

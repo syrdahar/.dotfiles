@@ -1,0 +1,117 @@
+/* Neon Graffiti — launcher */
+* {
+    base:     #100c1fd9;
+    mantle:   #1a1530;
+    surface:  #2a2346;
+    overlay:  #493459;
+    text:     #e6ddf0;
+    subtext:  #c2b1c0;
+    cyan:     #29b4d7;
+    magenta:  #c23d9e;
+    gold:     #e2b620;
+    red:      #e0485a;
+
+    font: "JetBrainsMono Nerd Font Propo SemiBold 9.5";
+    background-color: transparent;
+    text-color: @text;
+    margin: 0;
+    padding: 0;
+    spacing: 0;
+}
+
+window {
+    location: center;
+    width: 480px;
+    border: 2px;
+    border-radius: 18px;
+    border-color: @cyan;
+    background-color: @base;
+}
+
+mainbox {
+    padding: 12px;
+    spacing: 10px;
+    children: [ inputbar, message, listview, mode-switcher ];
+}
+
+inputbar {
+    padding: 9px 12px;
+    spacing: 12px;
+    border-radius: 12px;
+    background-color: @mantle;
+    children: [ prompt, entry ];
+}
+
+prompt { text-color: @cyan; }
+
+entry {
+    placeholder: "rechercher…";
+    placeholder-color: @overlay;
+    cursor: text;
+}
+
+message {
+    padding: 10px 14px;
+    border-radius: 10px;
+    background-color: @mantle;
+}
+
+textbox { text-color: @subtext; }
+
+listview {
+    lines: 9;
+    columns: 1;
+    fixed-height: false;
+    scrollbar: false;
+    spacing: 2px;
+}
+
+element {
+    padding: 6px 10px;
+    spacing: 12px;
+    border-radius: 10px;
+    cursor: pointer;
+}
+
+element normal.normal, element alternate.normal { text-color: @subtext; }
+element normal.urgent, element alternate.urgent { text-color: @red; }
+element normal.active, element alternate.active { text-color: @gold; }
+
+element selected.normal, element selected.active {
+    background-color: @surface;
+    text-color: @text;
+    border: 0 0 0 3px;
+    border-color: @magenta;
+}
+
+element selected.urgent {
+    background-color: @red;
+    text-color: @mantle;
+}
+
+element-icon {
+    size: 18px;
+    cursor: inherit;
+}
+
+element-text {
+    vertical-align: 0.5;
+    text-color: inherit;
+    cursor: inherit;
+}
+
+mode-switcher { spacing: 8px; }
+
+button {
+    padding: 8px;
+    border-radius: 10px;
+    background-color: @mantle;
+    text-color: @overlay;
+    cursor: pointer;
+}
+
+button selected {
+    background-color: @surface;
+    text-color: @cyan;
+}
+@import "~/.config/rofi/look.rasi"

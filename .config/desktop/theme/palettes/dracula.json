@@ -1,0 +1,20 @@
+{
+ "name": "dracula",
+ "source": "preset",
+ "colors": {
+  "base": "#282a36",
+  "mantle": "#44475a",
+  "surface": "#535c7f",
+  "overlay": "#6272a4",
+  "text": "#f8f8f2",
+  "subtext": "#adb5cb",
+  "cyan": "#8be9fd",
+  "blue": "#8be9fd",
+  "magenta": "#bd93f9",
+  "pink": "#ff79c6",
+  "gold": "#f1fa8c",
+  "orange": "#ffb86c",
+  "red": "#ff5555",
+  "green": "#50fa7b"
+ }
+}

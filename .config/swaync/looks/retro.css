@@ -1,0 +1,12 @@
+/* swaync · look "retro" : cartes opaques, liseré or, sans ombre douce */
+:root {
+  --card-bg:      rgba(16, 12, 31, 1.0);
+  --card-edge:    rgba(226, 182, 32, 0.5);
+  --card-hi:      rgba(255, 255, 255, 0.0);
+  --chip-bg:      rgba(26, 21, 48, 1.0);
+  --raise-bg:     #2a2346;
+  --shade-dark:   rgba(5, 3, 12, 0.0);
+  --shade-light:  rgba(255, 255, 255, 0.0);
+  --panel-bg:     rgba(16, 12, 31, 1.0);
+  --panel-edge:   rgba(226, 182, 32, 0.5);
+}

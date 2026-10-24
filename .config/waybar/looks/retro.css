@@ -1,0 +1,9 @@
+/* Look "retro" : fonds opaques, liseré or, aucune ombre douce */
+@define-color bar_bg      alpha(@base, 1.0);
+@define-color island_bg   alpha(@base, 1.0);
+@define-color chip_bg     alpha(@mantle, 1.0);
+@define-color hover_bg    alpha(@surface, 1.0);
+@define-color edge        alpha(@gold, 0.5);
+@define-color edge_hi     alpha(@text, 0.0);
+@define-color shade_dark  alpha(#05030c, 0.0);
+@define-color shade_light alpha(@text, 0.0);

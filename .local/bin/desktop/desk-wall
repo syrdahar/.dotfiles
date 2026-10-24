@@ -1,0 +1,273 @@
+#!/usr/bin/env bash
+# ──────────────────────────────────────────────────────────────
+#  desk wall — fond d'écran (awww) : choix, aléatoire, rotation, surveillance du dossier
+#   desk wall                      usage
+#   desk wall pick                 grille de miniatures (rofi) → transition « grow » depuis le curseur
+#   desk wall set IMG [--transition grow|random|fade] [--quiet]
+#   desk wall random               fond aléatoire (≠ courant)
+#   desk wall next                 fond suivant (ordre alphabétique, boucle)
+#   desk wall login                au démarrage : attend awww, fond aléatoire en fondu
+#   desk wall rotate on|off|toggle|status   rotation auto (timer systemd user, DESK_WALL_INTERVAL)
+#   desk wall watch                surveille le dossier : nouvelle image → affichée
+#   desk wall thumbs               (re)génère les miniatures, affiche leurs chemins
+#  Dossier : DESK_WALL_DIR (défaut ~/Images/Wallpapers) · fond courant : ~/.cache/desk/wall/current
+#  Après chaque changement : desk theme apply (si la palette est « auto »).
+# ──────────────────────────────────────────────────────────────
+source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/lib.sh"
+# shellcheck source=theme/state.sh
+source "$DESK_DIR/theme/state.sh"
+DESK_NAME=wall
+THUMB_DIR=~/.cache/desk/wall/thumbs
+UNIT_DIR=~/.config/systemd/user
+
+usage() {
+    sed -n '3,14p' "${BASH_SOURCE[0]}" | sed 's/^#  \{0,1\}//'
+}
+
+is_image() {
+    local f=${1,,}
+    [[ $f == *.jpg || $f == *.jpeg || $f == *.png || $f == *.webp ]]
+}
+
+# images → chemins réels triés des images du dossier (une par ligne)
+images() {
+    [[ -d $WALL_DIR ]] || return 0
+    local f
+    while IFS= read -r -d '' f; do
+        is_image "$f" && [[ -f $f ]] && readlink -f "$f"
+    done < <(find "$WALL_DIR" -maxdepth 1 \( -type f -o -type l \) -print0) | sort -u
+    return 0
+}
+
+current_wall() { readlink -f "$WALL_CUR" 2>/dev/null || true; }
+
+# cursor_rel → « X,Y » : curseur relatif au moniteur focalisé, en pixels physiques
+# (entiers, origine haut-gauche : awww --invert-y)
+cursor_rel() {
+    local c m
+    c=$(hyprctl cursorpos -j 2>/dev/null | jq -r '"\(.x) \(.y)"' 2>/dev/null) || c="0 0"
+    m=$(hyprctl monitors -j 2>/dev/null \
+        | jq -r 'first(.[] | select(.focused)) | "\(.x) \(.y) \(.scale)"' 2>/dev/null) || m="0 0 1"
+    awk -v c="$c" -v m="$m" 'BEGIN {
+        split(c, a, " "); split(m, b, " ")
+        x = int((a[1] - b[1]) * b[3]); y = int((a[2] - b[2]) * b[3])
+        if (x < 0) x = 0; if (y < 0) y = 0
+        printf "%d,%d\n", x, y }'
+}
+
+# thumb_of IMG → chemin de la miniature (sha1 de « chemin:mtime »)
+thumb_of() {
+    printf '%s/%s.png' "$THUMB_DIR" "$(printf '%s' "$1:$(stat -c %Y "$1")" | sha1sum | cut -d' ' -f1)"
+}
+
+# make_thumbs : génère en parallèle les miniatures manquantes (320×180, recadrées au centre)
+make_thumbs() {
+    mkdir -p "$THUMB_DIR"
+    local img out
+    while IFS= read -r img; do
+        out=$(thumb_of "$img")
+        [[ -s $out ]] || printf '%s\0%s\0' "$img" "$out"
+    done < <(images) \
+        | xargs -0 -r -n2 -P4 sh -c \
+            'magick "$1" -thumbnail 320x180^ -gravity center -extent 320x180 "$2.part.png" && mv -f "$2.part.png" "$2"' sh
+    return 0
+}
+
+# set_wall IMG [grow|random|fade] [--quiet] : awww img, mémorise, puis palette auto si besoin
+set_wall() {
+    local img=$1 tr=${2:-grow} quiet=${3:-} abs auto=0 pre=""
+    [[ -f $img ]] || die "$(t "Fichier introuvable" "File not found") : $img"
+    is_image "$img" || die "$(t "Format non supporté (jpg png webp)" "Unsupported format (jpg png webp)") : $img"
+    abs=$(readlink -f "$img")
+    awww query >/dev/null 2>&1 \
+        || die "$(t "awww-daemon ne tourne pas" "awww-daemon not running")"
+
+    local -a args=(--transition-duration 1.2 --transition-fps 120)
+    case $tr in
+        grow)   args+=(--transition-type grow --transition-pos "$(cursor_rel)" --invert-y) ;;
+        random)
+            case $(( RANDOM % 4 )) in
+                0)  args+=(--transition-type wipe --transition-angle $(( RANDOM % 360 ))) ;;
+                1)  args+=(--transition-type wave --transition-angle $(( RANDOM % 360 ))) ;;
+                2)  args+=(--transition-type outer) ;;
+                3)  args+=(--transition-type center) ;;
+            esac ;;
+        fade)   args+=(--transition-type simple) ;;
+        *)      die "$(t "Transition inconnue" "Unknown transition") : $tr" ;;
+    esac
+
+    if [[ $(state_get palette auto) == auto ]]; then
+        auto=1
+        # palette auto : calcul (et mise en cache) pendant la transition
+        python3 -I "$THEME_DIR/palette.py" auto "$abs" >/dev/null 2>&1 &
+        pre=$!
+    fi
+
+    awww img "${args[@]}" "$abs" >/dev/null 2>&1 \
+        || die "$(t "awww img a échoué" "awww img failed") : $(basename "$abs")"
+    mkdir -p "$(dirname "$WALL_CUR")"
+    ln -sfn "$abs" "$WALL_CUR"
+    state_set wallpaper "$abs"
+
+    if (( auto )); then
+        sleep 1
+        wait "$pre" 2>/dev/null || true
+        "$DESK_DIR/desk-theme" apply ${quiet:+--quiet} || exit 1   # erreur déjà notifiée par desk-theme
+    fi
+}
+
+# pick : grille rofi de miniatures, fond courant marqué ●
+pick() {
+    local cur img idx
+    mapfile -t imgs < <(images)
+    (( ${#imgs[@]} )) || die "$(t "Aucune image dans" "No image in") $(tilde "$WALL_DIR")"
+    make_thumbs
+    cur=$(current_wall)
+    idx=$(
+        for img in "${imgs[@]}"; do
+            if [[ $img == "$cur" ]]; then
+                printf '%s ●\0icon\x1f%s\n' "$(basename "$img")" "$(thumb_of "$img")"
+            else
+                printf '%s\0icon\x1f%s\n' "$(basename "$img")" "$(thumb_of "$img")"
+            fi
+        done \
+            | rofi -dmenu -i -show-icons -format i -p "$(bi '󰸉  fond ‖ wallpaper')" \
+                   -theme ~/.config/rofi/wall.rasi \
+                   -theme-str "listview { lines: $(( (${#imgs[@]} + 2) / 3 > 3 ? 3 : (${#imgs[@]} + 2) / 3 )); }"
+    ) || exit 0
+    [[ -n $idx ]] || exit 0
+    set_wall "${imgs[$idx]}" grow
+}
+
+# random : fond aléatoire différent du courant (s'il y en a plusieurs)
+random_wall() {
+    mapfile -t imgs < <(images)
+    (( ${#imgs[@]} )) || die "$(t "Aucune image dans" "No image in") $(tilde "$WALL_DIR")"
+    local cur img; cur=$(current_wall)
+    local -a others=()
+    for img in "${imgs[@]}"; do [[ $img == "$cur" ]] || others+=("$img"); done
+    (( ${#others[@]} )) || others=("${imgs[@]}")
+    set_wall "${others[RANDOM % ${#others[@]}]}" random
+}
+
+# next : image suivante dans l'ordre alphabétique (boucle)
+next_wall() {
+    mapfile -t imgs < <(images)
+    local n=${#imgs[@]} cur i
+    (( n )) || die "$(t "Aucune image dans" "No image in") $(tilde "$WALL_DIR")"
+    cur=$(current_wall)
+    for i in "${!imgs[@]}"; do
+        if [[ ${imgs[$i]} == "$cur" ]]; then
+            set_wall "${imgs[$(( (i + 1) % n ))]}" random
+            return 0
+        fi
+    done
+    set_wall "${imgs[0]}" random
+}
+
+# login : attend awww (5 s max), fond aléatoire en fondu ; jamais d'échec bloquant
+login() {
+    local i img
+    for (( i = 0; i < 50; i++ )); do
+        awww query >/dev/null 2>&1 && break
+        sleep 0.1
+    done
+    mapfile -t imgs < <(images)
+    if (( ${#imgs[@]} )); then
+        img=${imgs[RANDOM % ${#imgs[@]}]}
+    else
+        img=$(state_get wallpaper "")
+    fi
+    [[ -f ${img:-} ]] || exit 0
+    set_wall "$img" fade --quiet || exit 0
+}
+
+write_units() {
+    local every=${DESK_WALL_INTERVAL:-30min}
+    mkdir -p "$UNIT_DIR"
+    cat >"$UNIT_DIR/desk-wall-rotate.service" <<EOF
+[Unit]
+Description=desk wall : fond d'écran suivant (rotation)
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/desktop/desk wall next
+EOF
+    cat >"$UNIT_DIR/desk-wall-rotate.timer" <<EOF
+[Unit]
+Description=desk wall : rotation du fond d'écran toutes les $every
+
+[Timer]
+OnActiveSec=$every
+OnUnitActiveSec=$every
+Unit=desk-wall-rotate.service
+
+[Install]
+WantedBy=timers.target
+EOF
+}
+
+rotate() {   # rotate on|off|toggle|status
+    local cmd=${1:-status} every=${DESK_WALL_INTERVAL:-30min}
+    if [[ $cmd == toggle ]]; then
+        if [[ $(state_get rotate on) == on ]]; then cmd=off; else cmd=on; fi
+    fi
+    case $cmd in
+        on)
+            write_units
+            systemctl --user daemon-reload
+            systemctl --user enable --now desk-wall-rotate.timer
+            state_set rotate on
+            notify -u low -i preferences-desktop-wallpaper -h string:x-canonical-private-synchronous:desk-wall \
+                "$(t "Fond · Rotation activée" "Wallpaper · Rotation on")" "$(t "toutes les" "every") $every"
+            ;;
+        off)
+            systemctl --user disable --now desk-wall-rotate.timer 2>/dev/null || true
+            state_set rotate off
+            notify -u low -i preferences-desktop-wallpaper -h string:x-canonical-private-synchronous:desk-wall \
+                "$(t "Fond · Rotation désactivée" "Wallpaper · Rotation off")"
+            ;;
+        status)
+            local timer; timer=$(systemctl --user is-enabled desk-wall-rotate.timer 2>/dev/null || true)
+            echo "rotate=$(state_get rotate on) timer=${timer:-absent} interval=$every"
+            ;;
+        *) usage; exit 1 ;;
+    esac
+}
+
+# watch : une seule instance ; nouvelle image dans le dossier → affichée (grow)
+watch() {
+    exec 8>"$DESK_RUN/wall-watch.lock"
+    flock -n 8 || exit 0
+    mkdir -p "$WALL_DIR"
+    local f
+    inotifywait -m -q -e close_write -e moved_to --format '%w%f' "$WALL_DIR" | while IFS= read -r f; do
+        is_image "$f" || continue
+        sleep 0.5
+        [[ -f $f ]] || continue
+        ( set_wall "$f" grow ) || true   # sous-shell : un die ne tue pas la boucle
+    done
+}
+
+case "${1:-}" in
+    "")        usage ;;
+    set)       shift
+               img=""; tr=grow; quiet=""
+               while (( $# )); do
+                   case $1 in
+                       --transition) tr=${2:?transition requise}; shift 2 ;;
+                       --quiet)      quiet=--quiet; shift ;;
+                       *)            img=$1; shift ;;
+                   esac
+               done
+               [[ -n $img ]] || { usage; exit 1; }
+               set_wall "$img" "$tr" "$quiet" ;;
+    pick)      pick ;;
+    random)    random_wall ;;
+    next)      next_wall ;;
+    login)     login ;;
+    rotate)    shift; rotate "${1:-status}" ;;
+    watch)     watch ;;
+    thumbs)    make_thumbs; images | while IFS= read -r img; do echo "$(thumb_of "$img")"; done ;;
+    *)         usage; exit 1 ;;
+esac

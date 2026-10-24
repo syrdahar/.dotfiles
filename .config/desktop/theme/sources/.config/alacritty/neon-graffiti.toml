@@ -1,0 +1,32 @@
+# Neon Graffiti — palette tirée de ~/Images/einstein.jpg
+[colors.primary]
+background = "#100c1f"
+foreground = "#e6ddf0"
+
+[colors.cursor]
+text = "#100c1f"
+cursor = "#29b4d7"
+
+[colors.selection]
+text = "CellForeground"
+background = "#3a2d58"
+
+[colors.normal]
+black   = "#2a2346"
+red     = "#e0485a"
+green   = "#5fd7a7"
+yellow  = "#e2b620"
+blue    = "#3a7bd5"
+magenta = "#c23d9e"
+cyan    = "#29b4d7"
+white   = "#c2b1c0"
+
+[colors.bright]
+black   = "#493459"
+red     = "#ff6b7d"
+green   = "#86f0c2"
+yellow  = "#ffd24a"
+blue    = "#5c9cff"
+magenta = "#ff5fb7"
+cyan    = "#5fd7f5"
+white   = "#e6ddf0"

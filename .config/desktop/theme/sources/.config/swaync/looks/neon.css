@@ -1,0 +1,12 @@
+/* swaync · look "neon" : cartes indigo denses, liseré cyan */
+:root {
+  --card-bg:      rgba(20, 15, 38, 0.94);
+  --card-edge:    rgba(41, 180, 215, 0.30);
+  --card-hi:      rgba(255, 255, 255, 0.03);
+  --chip-bg:      rgba(11, 8, 24, 0.85);
+  --raise-bg:     #221b3c;
+  --shade-dark:   rgba(5, 3, 12, 0.70);
+  --shade-light:  rgba(255, 255, 255, 0.0);
+  --panel-bg:     rgba(16, 12, 31, 0.90);
+  --panel-edge:   rgba(194, 61, 158, 0.40);
+}

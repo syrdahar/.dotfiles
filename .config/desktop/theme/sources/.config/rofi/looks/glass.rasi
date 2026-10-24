@@ -1,0 +1,39 @@
+/* Look "glass" : verre dépoli (blur Hyprland), arêtes claires.
+   Rofi ne gère pas box-shadow : le relief néomorphique est simulé
+   par des bordures claires en haut/gauche (relief) ou bas/droite (creux). */
+* {
+    base:    #2a234670;
+    mantle:  #0b081855;
+    surface: #e6ddf014;
+    edge:    #e6ddf033;
+}
+
+window {
+    border: 1px;
+    border-color: @edge;
+    background-color: @base;
+}
+
+inputbar {
+    background-color: @mantle;
+    border: 0 1px 1px 0;          /* creux : reflet en bas à droite */
+    border-color: #e6ddf01c;
+}
+
+element selected.normal, element selected.active {
+    background-color: @surface;
+    border: 1px 0 0 3px;          /* relief : reflet en haut + accent */
+    border-color: @magenta;
+}
+
+button {
+    background-color: @mantle;
+    border: 0 1px 1px 0;
+    border-color: #e6ddf01c;
+}
+
+button selected {
+    background-color: @surface;
+    border: 1px 0 0 1px;
+    border-color: @edge;
+}

@@ -1,0 +1,5 @@
+/* Look "aurora" : bordure 2 px magenta, coins comme neon */
+window {
+    border: 2px;
+    border-color: @magenta;
+}

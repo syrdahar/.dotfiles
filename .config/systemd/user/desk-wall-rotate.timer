@@ -1,0 +1,10 @@
+[Unit]
+Description=desk wall : rotation du fond d'écran toutes les 30min
+
+[Timer]
+OnActiveSec=30min
+OnUnitActiveSec=30min
+Unit=desk-wall-rotate.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,9 @@
+/* Look "neon" : fond indigo dense, liseré cyan, ombres sèches */
+@define-color bar_bg      alpha(@base, 0.80);
+@define-color island_bg   alpha(@base, 0.86);
+@define-color chip_bg     alpha(@mantle, 0.80);
+@define-color hover_bg    alpha(@surface, 0.85);
+@define-color edge        alpha(@cyan, 0.35);
+@define-color edge_hi     alpha(@text, 0.0);
+@define-color shade_dark  alpha(#05030c, 0.55);
+@define-color shade_light alpha(@text, 0.0);

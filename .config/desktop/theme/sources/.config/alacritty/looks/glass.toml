@@ -1,0 +1,6 @@
+# Look "glass" : plus translucide, le blur Hyprland fait le reste
+[window]
+opacity = 0.72
+
+[colors.primary]
+background = "#171229"

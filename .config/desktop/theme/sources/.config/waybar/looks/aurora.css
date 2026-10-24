@@ -1,0 +1,9 @@
+/* Look "aurora" : verre translucide, liseré magenta, reflet cyan */
+@define-color bar_bg      alpha(@surface, 0.50);
+@define-color island_bg   alpha(@surface, 0.55);
+@define-color chip_bg     alpha(@base, 0.45);
+@define-color hover_bg    alpha(@text, 0.08);
+@define-color edge        alpha(@magenta, 0.35);
+@define-color edge_hi     alpha(@text, 0.10);
+@define-color shade_dark  alpha(#05030c, 0.55);
+@define-color shade_light alpha(@cyan, 0.12);
