@@ -87,7 +87,16 @@ alias gc="git commit -m"
 alias gt="git tag -ma"
 alias gp="git push -u --follow-tags"
 
-alias l="ls -lAh"
+# eza remplace ls ; dans ~/Downloads, tri par date de modif (le plus récent en bas)
+unalias ls 2>/dev/null
+ls() {
+    if [[ $PWD == $HOME/Downloads ]]; then
+        eza --icons=auto --sort=modified "$@"
+    else
+        eza --icons=auto --group-directories-first "$@"
+    fi
+}
+alias l="ls -la --git"
 
 # ─── Core fzf integration ────────────────────────────────────────
 [ -f /usr/share/fzf/key-bindings.zsh ] && source /usr/share/fzf/key-bindings.zsh
