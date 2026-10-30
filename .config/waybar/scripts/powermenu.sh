@@ -13,7 +13,7 @@ chosen=$(printf '%s\n' "$lock" "$suspend" "$logout" "$reboot" "$shutdown" |
 case "$chosen" in
   "$lock")     pidof hyprlock || hyprlock ;;
   "$suspend")  systemctl suspend ;;
-  "$logout")   hyprctl dispatch exit ;;
+  "$logout")   hyprctl dispatch 'hl.dsp.exit()' ;;
   "$reboot")   systemctl reboot ;;
   "$shutdown") systemctl poweroff ;;
 esac

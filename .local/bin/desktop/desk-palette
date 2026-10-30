@@ -4,14 +4,14 @@
 #   desk palette            ouvre la palette
 #   desk palette --print    affiche la liste (libellé + raccourci) sans rofi
 #  Les actions sont déclarées dans actions.sh ; le raccourci de
-#  chacune est retrouvé dans `hyprctl binds` (apprendre en utilisant).
+#  chacune est retrouvé dans `hyprctl binds` via hypr_binds (apprendre en utilisant).
 # ──────────────────────────────────────────────────────────────
 source "$(dirname "$(readlink -f "$0")")/lib.sh"
 DESK_NAME=palette
 
 action() { printf '%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "${4:-}"; }
 actions=$(source "$DESK_DIR/actions.sh")
-binds=$(hyprctl binds -j)
+binds=$(hypr_binds)
 
 # une ligne affichée par action : "libellé ……… raccourci(s) ‖ mots-clés cachés"
 # (libellé dans la langue courante ; l'autre langue + la description d'origine du bind
@@ -38,10 +38,7 @@ idx=$(menu "󰘳  palette" -format i -matching fuzzy \
 IFS=$'\t' read -r label kind target _ < <(sed -n "$((idx + 1))p" <<<"$actions")
 case $kind in
     bind)
-        read -r dispatcher arg < <(jq -r --arg d "$target" \
-            'first(.[] | select(.description == $d)) | "\(.dispatcher) \(.arg)"' <<<"$binds")
-        [[ -n ${dispatcher:-} ]] || die "$(t "Bind introuvable" "Bind not found") : $target"
-        hyprctl dispatch "$dispatcher" "$arg" >/dev/null ;;
+        run_bind "$target" ;;
     cmd)
         # desk_t "fr" "en" : texte selon la langue, utilisable dans les commandes d'actions.sh
         setsid -f bash -c 'desk_t() { if [[ $DESK_LANG == fr ]]; then printf %s "$1"; else printf %s "$2"; fi; }; '"$target" >/dev/null 2>&1 ;;

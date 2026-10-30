@@ -2,7 +2,7 @@
 # ──────────────────────────────────────────────────────────────
 #  Aide des raccourcis (rofi) générée depuis `hyprctl binds`.
 #  Chaque bind est déclaré avec `bindd` (description) dans
-#  hyprland.conf : cette liste est donc toujours à jour.
+#  keybinds.lua & co : cette liste est donc toujours à jour.
 #  Recherche par action ("fermer") ou par touches ("shift q").
 #  Entrée : exécute le raccourci sélectionné.
 # ──────────────────────────────────────────────────────────────
@@ -42,8 +42,8 @@ idx=$(rofi -dmenu -i -format i -matching normal -p "󰌌  raccourcis" \
         -theme ~/.config/rofi/keybinds.rasi <<<"$list") || exit 0
 [[ -z $idx ]] && exit 0
 
-read -r dispatcher arg < <(jq -r --argjson i "$idx" '.[$i] | "\(.dispatcher) \(.arg)"' <<<"$binds")
-case $dispatcher in
-    movewindow|resizewindow) exit 0 ;;   # binds souris : rien à exécuter
-    *) hyprctl dispatch "$dispatcher" "$arg" >/dev/null ;;
-esac
+# Exécution : depuis Hyprland 0.57, `hyprctl binds` ne donne plus la commande d'un bind →
+# on demande à la config de rejouer le bind d'après sa description (desk_run, helpers.lua).
+[[ $(jq -r --argjson i "$idx" '.[$i].mouse' <<<"$binds") == true ]] && exit 0   # binds souris : rien à exécuter
+IFS=$'\t' read -r desc submap < <(jq -r --argjson i "$idx" '.[$i] | "\(.description)\t\(.submap)"' <<<"$binds")
+hyprctl eval "desk_run([==[$desc]==], [==[$submap]==])" >/dev/null

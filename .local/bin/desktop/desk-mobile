@@ -4,7 +4,7 @@
 #   desk mobile                     menu
 #   desk mobile run <id> [arg]      action directe (voir --list)
 #  Fenêtres scrcpy et émulateur : flottantes et épinglées
-#  (sur tous les workspaces), règles dans desktop-rules.conf.
+#  (sur tous les workspaces), règles dans desktop-rules.lua.
 # ──────────────────────────────────────────────────────────────
 source "$(dirname "$(readlink -f "$0")")/lib.sh"
 DESK_NAME=mobile

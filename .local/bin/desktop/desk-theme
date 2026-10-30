@@ -21,7 +21,7 @@ usage() {
     sed -n '3,10p' "${BASH_SOURCE[0]}" | sed 's/^#  \{0,1\}//'
 }
 
-current_look() { basename "$(readlink ~/.config/hypr/look.conf 2>/dev/null || echo none)" .conf; }
+current_look() { basename "$(readlink ~/.config/hypr/look.lua 2>/dev/null || echo none)" .lua; }
 mk() { if [[ $1 == "$2" ]]; then printf '●'; else printf '○'; fi; }
 
 # apply [--quiet] : palette active → recolor → rechargement (Hyprland, barre, notifications, osd)
@@ -65,7 +65,7 @@ $drift"
     timeout 2 swaync-client -rs >/dev/null 2>&1 || true
     pkill -x swayosd-server || true
     # relancé par Hyprland : hors du cgroup d'un service systemd (rotation) et sans nos verrous
-    hyprctl dispatch exec swayosd-server >/dev/null || true
+    hypr_exec swayosd-server || true
 
     (( quiet )) && return 0
     name=$(jq -r '.name' "$PAL_JSON")

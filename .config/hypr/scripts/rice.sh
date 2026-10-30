@@ -9,7 +9,7 @@
 #  rice.sh status
 #
 #  Chaque variante est un fichier ; la variante active est un
-#  symlink (look.conf, look.css, mode.css…). Rien d'autre à éditer.
+#  symlink (look.lua, look.css, mode.css…). Rien d'autre à éditer.
 # ──────────────────────────────────────────────────────────────
 set -euo pipefail
 
@@ -20,9 +20,8 @@ STATS=(claude hw)
 
 # Symlinks pilotés par le look : "dossier lien cible-sans-extension.ext"
 LOOK_LINKS=(
-    "$C/hypr      look.conf          looks/%s.conf"
+    "$C/hypr      look.lua           looks/%s.lua"
     "$C/hypr      hyprlock-look.conf looks/hyprlock-%s.conf"
-    "$C/hypr      look-post.conf     looks/post-%s.conf"
     "$C/waybar    look.css           looks/%s.css"
     "$C/swaync    look.css           looks/%s.css"
     "$C/rofi      look.rasi          looks/%s.rasi"
@@ -32,7 +31,7 @@ LOOK_LINKS=(
 )
 
 current_bar()  { basename "$(readlink "$C/waybar/mode.css")" .css; }
-current_look() { basename "$(readlink "$C/hypr/look.conf")" .conf; }
+current_look() { basename "$(readlink "$C/hypr/look.lua")" .lua; }
 current_stats() { basename "$(readlink "$C/waybar/stats.jsonc")" .jsonc; }
 
 notify() {
@@ -61,7 +60,7 @@ set_look() {
     ~/.config/hypr/scripts/wm.sh reapply
     pkill -SIGUSR2 -x waybar || true
     timeout 2 swaync-client -rs >/dev/null 2>&1 || true
-    pkill -x swayosd-server || true; hyprctl dispatch exec swayosd-server >/dev/null
+    pkill -x swayosd-server || true; hyprctl dispatch 'hl.dsp.exec_cmd("swayosd-server")' >/dev/null
     notify "Look · $look"
 }
 

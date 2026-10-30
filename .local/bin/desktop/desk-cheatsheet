@@ -4,8 +4,8 @@
 #   desk cheatsheet           menu rofi (Entrée exécute le raccourci choisi)
 #   desk cheatsheet --print   même liste sur stdout
 #
-#  Source : `hyprctl binds -j` = la config réellement chargée (tous les
-#  fichiers sourcés) → jamais désynchronisée. Catégorie = texte avant « · »
+#  Source : `hyprctl binds -j` (via hypr_binds) = la config réellement chargée
+#  (tous les fichiers .lua) → jamais désynchronisée. Catégorie = texte avant « · »
 #  dans la description du bindd ; un bind sans description apparaît quand
 #  même, avec sa commande brute. Les binds d'un submap s'affichent
 #  « touche d'entrée → touche » (ex. SUPER+Espace → G).
@@ -13,9 +13,9 @@
 source "$(dirname "$(readlink -f "$0")")/lib.sh"
 DESK_NAME=cheatsheet
 
-binds=$(hyprctl binds -j)
+binds=$(hypr_binds)
 
-# tableau trié : [ {cat, keys, desc, meta, dispatcher, arg} ]
+# tableau trié : [ {cat, keys, desc, meta, dispatcher, arg, description, submap} ]
 # description « fr ‖ en » : affichée dans la langue courante, l'autre langue devient
 # un mot-clé caché (recherche FR + EN) ; tes descriptions d'origine restent telles quelles.
 rows=$(jq -c --argjson all "$binds" --arg misc "$(t Divers Misc)" --arg nodesc "$(t "Sans description" "No description")" "$DESK_JQ"'
@@ -31,7 +31,7 @@ rows=$(jq -c --argjson all "$binds" --arg misc "$(t Divers Misc)" --arg nodesc "
                  else "\(.dispatcher) \(.arg)" end),
           meta: $oth,
           keys: fullcombo($all),
-          dispatcher, arg } ]
+          dispatcher, arg, description, submap, mouse } ]
     | sort_by(.cat | ascii_downcase)
 ' <<<"$binds")
 
@@ -47,8 +47,11 @@ idx=$(menu "󰌌  $(t raccourcis shortcuts)" -format i -matching normal \
         <<<"$list") || exit 0
 [[ -n $idx ]] || exit 0
 
-read -r dispatcher arg < <(jq -r --argjson i "$idx" '.[$i] | "\(.dispatcher) \(.arg)"' <<<"$rows")
-case $dispatcher in
-    mouse|movewindow|resizewindow) notify -u low "$(t "Raccourci souris" "Mouse shortcut")" "$(t "À faire avec la souris" "Use the mouse"): $(jq -r --argjson i "$idx" '.[$i].keys' <<<"$rows")" ;;
-    *) hyprctl dispatch "$dispatcher" "$arg" >/dev/null ;;
-esac
+row=$(jq -c --argjson i "$idx" '.[$i]' <<<"$rows")
+if [[ $(jq -r '.mouse' <<<"$row") == true ]]; then
+    notify -u low "$(t "Raccourci souris" "Mouse shortcut")" "$(t "À faire avec la souris" "Use the mouse"): $(jq -r '.keys' <<<"$row")"
+elif [[ $(jq -r '.description' <<<"$row") == "" ]]; then
+    notify -u low "$(t "Raccourci sans description" "Shortcut without description")" "$(t "Ne peut pas être lancé d'ici" "Can't be run from here"): $(jq -r '.keys' <<<"$row")"
+else
+    run_bind "$(jq -r '.description' <<<"$row")" "$(jq -r '.submap' <<<"$row")"
+fi

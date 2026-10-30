@@ -60,7 +60,7 @@ excerpt() {   # excerpt < texte → 1re ligne utile, secrets masqués, ≤ 110 c
 }
 
 goto() {   # goto adresse [pane tmux]
-    hyprctl dispatch focuswindow "address:$1" >/dev/null
+    hyprctl dispatch "hl.dsp.focus({ window = \"address:$1\" })" >/dev/null
     if [[ -n ${2:-} ]]; then tmux select-window -t "$2" \; select-pane -t "$2" >/dev/null 2>&1 || true; fi
 }
 

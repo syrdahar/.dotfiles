@@ -16,7 +16,7 @@ rofi search always matches **both** languages.
 | `SUPER+ALT+Enter` | Toggle terminal scratchpad (tmux session `scratch`) | Scratchpad terminal (session tmux `scratch`) |
 | `SUPER+CTRL+Space` | Previous layout (moved from `SUPER+Space`) | Layout précédent (déplacé depuis `SUPER+Espace`) |
 
-Your existing shortcuts (`keybinds.conf`) are unchanged, except the line above.
+Your existing shortcuts (`keybinds.lua`, formerly `keybinds.conf`) are unchanged, except the line above.
 
 ## Leader keys (`SUPER+Space` then…)
 
@@ -152,7 +152,7 @@ Text is typed at the cursor (wtype), after the modifiers are released; clipboard
   red pulsing 󰍬 recording · gold 󰔟 transcribing · grey 󰍭 service stopped. Click = stop (or restart the
   service if stopped) · right-click = cancel. Stream: `desk dictate waybar` (wraps `voxtype status --follow`).
 - Config: `~/.config/voxtype/config.toml` (stock defaults: `config.toml.default`), then
-  `systemctl --user restart voxtype`. Binds: `~/.config/hypr/desktop-dictation.conf`.
+  `systemctl --user restart voxtype`. Binds: `~/.config/hypr/desktop-dictation.lua`.
 - AI model: `DESK_DICTATE_MODEL=…` in `desk.conf` (default `llama3.1:8b`, CPU).
 - Checks: `voxtype info accel` (GPU?) · `voxtype status` · `journalctl --user -u voxtype -f`.
 
@@ -161,13 +161,13 @@ Text is typed at the cursor (wtype), after the modifiers are released; clipboard
 The colours of the whole rice follow the **wallpaper** (`palette auto`), or follow a **preset**
 palette (`catppuccin-mocha`, `tokyo-night`, `rose-pine`, `gruvbox-dark`, `nord`, `dracula`,
 `kanagawa`, `everforest`, `neon-graffiti`). Wallpapers are shown with **awww** (animated
-transitions) instead of hyprpaper (commented in `hyprland.conf`, not deleted).
+transitions) instead of hyprpaper (commented in `hyprland.lua`, not deleted).
 
 - **Palette**: `auto` = colours computed from the current wallpaper (cache in `~/.cache/desk/theme/`);
   a preset is fixed. `desk theme palette auto|<preset>` · `desk theme palette list`.
 - **Looks**: `neon glass flat aurora retro zen` (`rice.sh look <name>`, or `desk theme look <name>`).
-  Each look has its own files for the 8 apps and `looks/post-<look>.conf` (animations, via
-  `~/.config/hypr/look-post.conf`).
+  Each look has its own files for the 8 apps; on the Hyprland side `looks/<look>.lua` (colours,
+  decoration and the look's own animations, via the `~/.config/hypr/look.lua` symlink).
 - **Wallpapers**: `DESK_WALL_DIR` in `desk.conf` (default `~/Images/Wallpapers`, jpg / png / webp).
   `desk wall pick` (thumbnail grid, transition from the cursor) · `random` · `next` · `set <image>`.
   The current one is `~/.cache/desk/wall/current` (also used by hyprlock).
@@ -186,10 +186,10 @@ transitions) instead of hyprpaper (commented in `hyprland.conf`, not deleted).
 
 | Path | Role |
 |---|---|
-| `~/.config/hypr/desktop-binds.conf` | direct binds (leader, palette, scratchpad) |
-| `~/.config/hypr/desktop-leader.conf` | leader submap |
-| `~/.config/hypr/desktop-rules.conf` | window rules for `desk-*` classes, satty, scrcpy, emulator |
-| `~/.config/hypr/desktop-autostart.conf` | filtered clipboard watcher |
+| `~/.config/hypr/desktop-binds.lua` | direct binds (leader, palette, scratchpad) |
+| `~/.config/hypr/desktop-leader.lua` | leader submap |
+| `~/.config/hypr/desktop-rules.lua` | window rules for `desk-*` classes, satty, scrcpy, emulator |
+| `~/.config/hypr/desktop-autostart.lua` | filtered clipboard watcher |
 | `~/.config/rofi/desk.rasi` | compact theme (imports your `neon.rasi` + active look) |
 | `~/.config/desktop/desk.conf` | settings: `DESK_LANG`, `DESK_BROWSER`, `DESK_TERMINAL`, `DESK_SEARCH_DEFAULT`, `DESK_AI_MODEL`, `DESK_GPT_MODEL`, `DESK_GPT_EFFORT`, `DESK_GPT_TIMEOUT`, `DESK_GPT_CONTEXT` |
 | `~/.config/desktop/projects.conf` | project root folders (git repos found up to 3 levels deep) |
@@ -242,12 +242,12 @@ Backups: `~/.config/hypr.bak-2026-09-27/`, `~/.config/rofi.bak-2026-09-27/`, `al
 2. **Or directly in `actions.sh`**:
    `action "Catégorie · Libellé ‖ Category · Label" cmd "desk …"` (shell command)
    or `action "… ‖ …" bind "exact description of an existing bindd"`.
-3. **Optional shortcut**: in `desktop-leader.conf` (before the `catchall` lines),
-   `bindd = , KEY, Catégorie · libellé ‖ Category · label, exec, $desk leader <module> …`
-   plus `bind = SUPER, KEY, exec, …` (SUPER-held variant). Descriptions must not
-   contain commas. Or a direct bind in `desktop-binds.conf`.
+3. **Optional shortcut**: add a line `{ "KEY", "Catégorie · libellé ‖ Category · label", "<module> …" }`
+   to the `LEADER` table of `desktop-leader.lua` (the SUPER-held variant is generated).
+   Or a direct bind in `desktop-binds.lua`: `bindd("SUPER + KEY", "… ‖ …", desk .. " <module>")`.
 4. Nothing else to maintain: the palette finds the shortcut by matching the command,
-   the cheatsheet and the which-key notification read `hyprctl binds`.
+   the cheatsheet and the which-key notification read `hyprctl binds` (Hyprland ≥ 0.57:
+   commands come from the bind registry of `~/.config/hypr/helpers.lua`, see `hypr_binds` in `lib.sh`).
 5. Check: `hyprctl reload && hyprctl configerrors`,
    `desk palette --print | grep …`, `desk cheatsheet --print | grep …`.
 
@@ -257,7 +257,7 @@ Testing helpers: `DESK_TEST=1` (notifications to stderr), `DESK_CLIP_IN="…"`
 
 ## Troubleshooting
 
-- Stuck in the leader: `Esc`, or wait 5 s, or `hyprctl dispatch submap reset`.
+- Stuck in the leader: `Esc`, or wait 5 s, or `hyprctl dispatch 'hl.dsp.submap("reset")'`.
 - Hyprland 0.56 quirk: `catchall` also fires after a bound key — that is why the
   leader's catchall only does `submap, reset` and must stay **last**.
 - `desk gpt` answers are empty: `DESK_GPT_EFFORT=minimal` is not supported, use `none` or `low`;

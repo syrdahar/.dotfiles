@@ -126,7 +126,7 @@ mask_secrets() {
 # show_text "titre" fichier [langage]   affiche un fichier dans un terminal flottant (bat)
 show_text() {
     local title=$1 file=$2 lang=${3:-txt}
-    hyprctl dispatch exec "alacritty --class desk-float -T '$title' -e bat --paging=always --style=plain -l '$lang' '$file'" >/dev/null
+    hypr_exec "alacritty --class desk-float -T '$title' -e bat --paging=always --style=plain -l '$lang' '$file'"
 }
 
 # float_run "titre" dossier commande…   lance une commande dans un terminal flottant
@@ -151,7 +151,7 @@ term_run() {
 
 open_url() {
     if [[ $DESK_BROWSER == xdg-open ]]; then setsid -f xdg-open "$1" >/dev/null 2>&1
-    else hyprctl dispatch exec "$DESK_BROWSER '$1'" >/dev/null; fi
+    else hypr_exec "$DESK_BROWSER '$1'"; fi
 }
 
 urlencode() { python3 -c 'import sys,urllib.parse as u; print(u.quote_plus(sys.argv[1]), end="")' "$1"; }
@@ -163,12 +163,29 @@ confirm() {
     [[ $idx == 1 ]]
 }
 
-# run_bind "description exacte d'un bindd"   exécute ce bind (même action que le raccourci)
+# ── Hyprland (config Lua, 0.57+) ─────────────────────────────
+# `hyprctl dispatch` prend du Lua (hl.dsp.*) et `hyprctl binds` ne montre plus la commande
+# d'un bind : les binds décrits sont lus dans le registre de la config (hypr/helpers.lua).
+# lq "texte"   → chaîne Lua littérale (crochets longs, aucun échappement à faire)
+lq() { printf '[==[%s]==]' "$1"; }
+# hypr_exec "commande" ['{ règles Lua }']   lance une commande via Hyprland (ex-dispatch exec)
+hypr_exec() { hyprctl dispatch "hl.dsp.exec_cmd($(lq "$1")${2:+, $2})" >/dev/null; }
+# hypr_binds   `hyprctl binds -j` + dispatcher/arg d'origine des binds décrits
+#   (dispatcher "exec" + commande, "submap" + nom, "mouse", "lua" ou "HL.Dispatcher(…)")
+hypr_binds() {
+    local reg
+    reg=$(hyprctl repl 'desk_binds()' 2>/dev/null)
+    jq -e 'type == "array"' <<<"$reg" >/dev/null 2>&1 || reg='[]'
+    hyprctl binds -j | jq --argjson reg "$reg" '
+        map(. as $b
+            | (first($reg[] | select($b.has_description and .description == $b.description and .submap == $b.submap)) // null) as $r
+            | if $r then .dispatcher = $r.dispatcher | .arg = $r.arg else . end)'
+}
+# run_bind "description exacte d'un bind décrit" [submap]   exécute ce bind (même action que le raccourci)
 run_bind() {
-    local d a
-    read -r d a < <(hyprctl binds -j | jq -r --arg x "$1" 'first(.[] | select(.description == $x)) | "\(.dispatcher) \(.arg)"')
-    [[ -n ${d:-} && $d != null ]] || die "$(t "Bind introuvable" "Bind not found") : $1"
-    hyprctl dispatch "$d" "$a" >/dev/null
+    local r
+    r=$(hyprctl eval "desk_run($(lq "$1"), $(lq "${2:-}"))" 2>&1)
+    [[ $r == ok ]] || die "$(t "Bind introuvable" "Bind not found") : $1${r:+ ($r)}"
 }
 
 tilde() { local p=$1; [[ $p == "$HOME"* ]] && p="~${p#"$HOME"}"; printf '%s' "$p"; }

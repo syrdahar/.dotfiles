@@ -26,7 +26,7 @@ close_hint() {
 
 leave() {
     rm -f "$TOKEN"
-    [[ $(hyprctl submap 2>/dev/null) == leader ]] && hyprctl dispatch submap reset >/dev/null
+    [[ $(hyprctl submap 2>/dev/null) == leader ]] && hyprctl dispatch 'hl.dsp.submap("reset")' >/dev/null
     close_hint
 }
 
@@ -49,7 +49,7 @@ watch_leader() {   # lancé en arrière-plan par "enter"
 
 case "${1:-}" in
     enter)
-        hyprctl dispatch submap leader >/dev/null
+        hyprctl dispatch 'hl.dsp.submap("leader")' >/dev/null
         tok=$RANDOM$RANDOM; echo "$tok" >"$TOKEN"
         notify-send -a desk -p -u low -t $(( TIMEOUT * 1000 )) -i input-keyboard-symbolic \
             -h string:x-canonical-private-synchronous:desk-leader -h boolean:transient:true \

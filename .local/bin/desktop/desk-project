@@ -58,7 +58,7 @@ open_project() {
     { echo "$dir"; grep -vxF "$dir" "$HIST" 2>/dev/null | head -50; } >"$HIST.tmp" && mv "$HIST.tmp" "$HIST"
 
     if (( $(ws_windows "$name") > 0 )); then     # déjà ouvert : on y va
-        hyprctl dispatch workspace "name:$name" >/dev/null
+        hyprctl dispatch "hl.dsp.focus({ workspace = $(lq "name:$name") })" >/dev/null
         return
     fi
 
@@ -78,10 +78,10 @@ open_project() {
         tmux select-window -t "=$name:edit"
     fi
 
-    hyprctl dispatch workspace "name:$name" >/dev/null
-    hyprctl dispatch exec "[workspace name:$name silent] $DESK_TERMINAL -T '$name · tmux' --working-directory '$dir' -e tmux new-session -A -s '$name'" >/dev/null
+    hyprctl dispatch "hl.dsp.focus({ workspace = $(lq "name:$name") })" >/dev/null
+    hypr_exec "$DESK_TERMINAL -T '$name · tmux' --working-directory '$dir' -e tmux new-session -A -s '$name'" "{ workspace = $(lq "name:$name silent") }"
     sleep 0.3
-    hyprctl dispatch exec "[workspace name:$name silent] $DESK_TERMINAL -T '$name · shell' --working-directory '$dir'" >/dev/null
+    hypr_exec "$DESK_TERMINAL -T '$name · shell' --working-directory '$dir'" "{ workspace = $(lq "name:$name silent") }"
 
     if [[ -n $url ]]; then
         setsid -f bash -c 'sleep "$1"; "$2" url "$3"' _ "$url_delay" "$0" "$url" >/dev/null 2>&1
@@ -115,7 +115,7 @@ a_close() {
     s=${s%% *}; [[ -n $s ]] || exit 0
     confirm "$(t "Fermer $s (session tmux et fenêtres du workspace) ?" "Close $s (tmux session and workspace windows)?")" || exit 0
     hyprctl clients -j | jq -r --arg w "name:$s" '.[] | select(.workspace.name == $w or .workspace.name == ($w | ltrimstr("name:"))) | .address' |
-        while read -r a; do hyprctl dispatch closewindow "address:$a" >/dev/null; done
+        while read -r a; do hyprctl dispatch "hl.dsp.window.close({ window = \"address:$a\" })" >/dev/null; done
     tmux kill-session -t "=$s" 2>/dev/null || true
     notify -u low -i window-close-symbolic "$(t "Projet $s fermé" "Project $s closed")"
 }

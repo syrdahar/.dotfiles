@@ -13,13 +13,13 @@ case "${1:-toggle}" in
     toggle)
         if ! hyprctl clients -j | jq -e --arg c "$CLASS" 'any(.[]; .class == $c)' >/dev/null; then
             # Sauvegarde auto à chaque modif / perte de focus ; curseur en fin de fichier
-            hyprctl dispatch exec "alacritty --class $CLASS -T 'notes · scratchpad' \
+            hyprctl dispatch "hl.dsp.exec_cmd([==[alacritty --class $CLASS -T 'notes · scratchpad' \
                 -e nvim + -c 'set autoread wrap linebreak' \
                 -c 'autocmd TextChanged,InsertLeave,FocusLost,BufLeave * silent! update' \
-                -c 'autocmd FocusGained * checktime' $FILE" >/dev/null
+                -c 'autocmd FocusGained * checktime' $FILE]==])" >/dev/null
             sleep 0.4
         fi
-        hyprctl dispatch togglespecialworkspace notes >/dev/null ;;
+        hyprctl dispatch 'hl.dsp.workspace.toggle_special("notes")' >/dev/null ;;
     quick)
         line=$(rofi -dmenu -p "󰏫  note" -l 0 -theme-str 'window { width: 560px; }' </dev/null) || exit 0
         [[ -z $line ]] && exit 0

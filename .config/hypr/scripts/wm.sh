@@ -21,7 +21,7 @@ set -uo pipefail
 
 STATE="${XDG_RUNTIME_DIR:-/tmp}/hypr-wm.state"
 LAYOUTS=(dwindle master monocle scrolling)
-# Valeurs par défaut = hyprland.conf
+# Valeurs par défaut = hyprland.lua
 DEF_GIN=3 DEF_GOUT=7 DEF_BORDER=2 DEF_LAYOUT=dwindle
 
 # ── État ─────────────────────────────────────────────────────
@@ -35,19 +35,21 @@ gih=$gih giv=$giv goh=$goh gov=$gov gaps_off=$gaps_off border=$border
 EOF
 }
 
-hc()  { hyprctl "$@" >/dev/null; }
-kw()  { hc keyword "$@"; }
+# Hyprland ≥ 0.57 : config Lua → plus de `hyprctl keyword`, et `dispatch` prend du Lua
+lua() { hyprctl eval "$1" >/dev/null; }          # code Lua quelconque
+dsp() { hyprctl dispatch "$1" >/dev/null; }      # un dispatcher hl.dsp.*
+cfg() { lua "hl.config({ $1 })"; }               # option(s) de config à chaud
+lmsg() { dsp "hl.dsp.layout(\"$1\")"; }          # message au layout courant
 msg() { notify-send -a wm -u low -t 1200 -h string:x-canonical-private-synchronous:wm "$@" 2>/dev/null || true; }
 cur_layout() { hyprctl activeworkspace -j | jq -r '.tiledLayout // "dwindle"'; }
 clamp() { local v=$1; (( v < 0 )) && v=0; (( v > 60 )) && v=60; echo "$v"; }
 
 apply_gaps() {
     if (( gaps_off )); then
-        kw general:gaps_in 0; kw general:gaps_out 0
+        cfg "general = { gaps_in = 0, gaps_out = 0 }"
     else
         # ordre CSS : haut droite bas gauche
-        kw general:gaps_in  "$giv,$gih,$giv,$gih"
-        kw general:gaps_out "$gov,$goh,$gov,$goh"
+        cfg "general = { gaps_in = { top = $giv, right = $gih, bottom = $giv, left = $gih }, gaps_out = { top = $gov, right = $goh, bottom = $gov, left = $goh } }"
     fi
 }
 
@@ -55,7 +57,7 @@ set_layout() {
     local new=$1
     [[ $new == "$layout" ]] || prev_layout=$layout
     layout=$new
-    kw general:layout "$layout"
+    cfg "general = { layout = \"$layout\" }"
     save
     msg "Layout · $layout"
 }
@@ -74,31 +76,31 @@ case "${1:-}" in
 
     mfact)
         case "$(cur_layout)" in
-            master)    [[ $2 == reset ]] && hc dispatch layoutmsg mfact exact 0.5 || hc dispatch layoutmsg mfact "$2" ;;
-            scrolling) [[ $2 == reset ]] && hc dispatch layoutmsg colresize 0.5 || hc dispatch layoutmsg colresize "$2" ;;
-            dwindle)   [[ $2 == reset ]] && hc dispatch layoutmsg splitratio exact 1 \
-                                        || hc dispatch layoutmsg splitratio "$(awk -v d="$2" 'BEGIN{printf "%+.2f", d*2}')" ;;
+            master)    [[ $2 == reset ]] && lmsg "mfact exact 0.5" || lmsg "mfact $2" ;;
+            scrolling) [[ $2 == reset ]] && lmsg "colresize 0.5" || lmsg "colresize $2" ;;
+            dwindle)   [[ $2 == reset ]] && lmsg "splitratio 1 exact" \
+                                        || lmsg "splitratio $(awk -v d="$2" 'BEGIN{printf "%+.2f", d*2}')" ;;
         esac ;;
 
     cfact)  # chadwm : +25 % → fenêtre plus haute dans sa pile
-        [[ $2 == reset ]] && { hc dispatch layoutmsg splitratio exact 1; exit; }
-        hc dispatch resizeactive 0 "$2" ;;
+        [[ $2 == reset ]] && { lmsg "splitratio 1 exact"; exit; }
+        dsp "hl.dsp.window.resize({ x = 0, y = $2, relative = true })" ;;
 
     zoom)
         if [[ $(cur_layout) == master ]]; then
-            hc dispatch layoutmsg swapwithmaster auto
+            lmsg "swapwithmaster auto"
         else
             # dwindle & co : échange avec la fenêtre tuilée la plus en haut à gauche
             ws=$(hyprctl activeworkspace -j | jq .id)
             me=$(hyprctl activewindow -j | jq -r .address)
             first=$(hyprctl clients -j | jq -r --argjson ws "$ws" \
                 '[.[] | select(.workspace.id == $ws and .floating == false)] | sort_by(.at[0], .at[1]) | .[0].address')
-            [[ -n $first && $first != null && $first != "$me" ]] && hc dispatch swapwindow "address:$first"
+            [[ -n $first && $first != null && $first != "$me" ]] && dsp "hl.dsp.window.swap({ target = \"address:$first\" })"
         fi ;;
 
     nmaster)
         [[ $(cur_layout) == master ]] || { msg "nmaster : layout master uniquement (SUPER+T)"; exit; }
-        [[ $2 == + ]] && hc dispatch layoutmsg addmaster || hc dispatch layoutmsg removemaster ;;
+        [[ $2 == + ]] && lmsg addmaster || lmsg removemaster ;;
 
     gaps)
         case "${2:-}" in
@@ -117,51 +119,51 @@ case "${1:-}" in
     border)
         [[ $2 == default ]] && border=$DEF_BORDER || border=$(( border + $2 ))
         (( border < 0 )) && border=0; (( border > 10 )) && border=10
-        kw general:border_size "$border"; save ;;
+        cfg "general = { border_size = $border }"; save ;;
 
     hide)
-        hc dispatch movetoworkspacesilent special:hidden
+        dsp 'hl.dsp.window.move({ workspace = "special:hidden", follow = false })'
         msg "Fenêtre cachée" "SUPER+SHIFT+E pour la restaurer" ;;
     restore)
         ws=$(hyprctl activeworkspace -j | jq .id)
         addr=$(hyprctl clients -j | jq -r \
             '[.[] | select(.workspace.name == "special:hidden")] | sort_by(.focusHistoryID) | .[0].address // empty')
-        [[ -n $addr ]] && hc dispatch movetoworkspace "$ws,address:$addr" || msg "Aucune fenêtre cachée" ;;
+        [[ -n $addr ]] && dsp "hl.dsp.window.move({ workspace = $ws, window = \"address:$addr\" })" || msg "Aucune fenêtre cachée" ;;
     hidden)
-        hc dispatch togglespecialworkspace hidden ;;
+        dsp 'hl.dsp.workspace.toggle_special("hidden")' ;;
 
     allfloat)
         ws=$(hyprctl activeworkspace -j | jq .id)
         mapfile -t tiled < <(hyprctl clients -j | jq -r --argjson ws "$ws" '.[] | select(.workspace.id == $ws and .floating == false) | .address')
         if (( ${#tiled[@]} )); then
-            for a in "${tiled[@]}"; do hc dispatch setfloating "address:$a"; done
+            for a in "${tiled[@]}"; do dsp "hl.dsp.window.float({ action = \"enable\", window = \"address:$a\" })"; done
             msg "Workspace flottant"
         else
             for a in $(hyprctl clients -j | jq -r --argjson ws "$ws" '.[] | select(.workspace.id == $ws) | .address'); do
-                hc dispatch settiled "address:$a"
+                dsp "hl.dsp.window.float({ action = \"disable\", window = \"address:$a\" })"
             done
             msg "Workspace tuilé"
         fi ;;
 
     pip)
         if [[ $(hyprctl activewindow -j | jq .pinned) == true ]]; then
-            hc --batch "dispatch pin; dispatch settiled"
+            lua 'hl.dispatch(hl.dsp.window.pin()) hl.dispatch(hl.dsp.window.float({ action = "disable" }))'
         else
-            hc --batch "dispatch setfloating; dispatch resizeactive exact 32% 32%; dispatch moveactive exact 66% 62%; dispatch pin"
+            # flottante, 32 % de l'écran, coin haut-gauche à 66 % / 62 %, épinglée (desk_fit : helpers.lua)
+            lua 'hl.dispatch(hl.dsp.window.float({ action = "enable" })) desk_fit(nil, 0.32, 0.32, 0.66, 0.62) hl.dispatch(hl.dsp.window.pin())'
         fi ;;
 
     gamemode)
-        if [[ $(hyprctl getoption animations:enabled -j | jq .int) == 1 ]]; then
-            hc --batch "keyword animations:enabled 0; keyword decoration:blur:enabled 0; keyword decoration:shadow:enabled 0; \
-                        keyword general:gaps_in 0; keyword general:gaps_out 0; keyword decoration:rounding 0; keyword general:border_size 1"
+        if [[ $(hyprctl getoption animations.enabled -j | jq ".bool // (.int == 1)") == true ]]; then
+            cfg "animations = { enabled = false }, decoration = { blur = { enabled = false }, shadow = { enabled = false }, rounding = 0 }, general = { gaps_in = 0, gaps_out = 0, border_size = 1 }"
             msg "Mode jeu activé" "animations, blur, ombres et gaps coupés"
         else
-            hc reload; sleep 0.3; "$0" reapply
+            hyprctl reload >/dev/null; sleep 0.3; "$0" reapply
             msg "Mode jeu désactivé"
         fi ;;
 
     reapply)
-        kw general:layout "$layout"; apply_gaps; kw general:border_size "$border" ;;
+        cfg "general = { layout = \"$layout\", border_size = $border }"; apply_gaps ;;
 
     *) sed -n '3,19p' "$0" | sed 's/^#  \{0,1\}//'; exit 1 ;;
 esac
