@@ -1,0 +1,11 @@
+[Unit]
+Description=Notification quand earlyoom tue un process
+After=graphical-session.target
+
+[Service]
+ExecStart=%h/.local/bin/earlyoom-notify
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

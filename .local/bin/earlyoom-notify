@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Suit le journal d'earlyoom et affiche une notification à chaque process tué.
+journalctl -fu earlyoom -n 0 -o cat | while IFS= read -r line; do
+    [[ $line == *"sending SIG"* ]] || continue
+    name=$(sed -n 's/[^"]*"\([^"]*\)".*/\1/p' <<<"$line")
+    notify-send -u critical -a earlyoom -i dialog-warning "RAM pleine" "earlyoom a fermé « ${name:-?} » pour libérer de la mémoire"
+done

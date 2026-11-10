@@ -1,0 +1,6 @@
+# Copié dans /etc/default/earlyoom (source : ~/.config/earlyoom/earlyoom.default)
+# Agit quand RAM dispo < 6 % ET swap libre < 10 % (SIGKILL à la moitié).
+# Pas de guillemets ni d'espaces dans les regex : systemd découpe $EARLYOOM_ARGS sur les espaces.
+#   prefer : tués en premier (onglet LibreWolf, LibreWolf, tsserver/node, java)
+#   avoid  : protégés (session graphique, audio, bus, terminaux, claude)
+EARLYOOM_ARGS="-r 0 -m 6 -s 10 --prefer ^(Isolated.Web.Co|Web.Content|librewolf|node.*|java)$ --avoid ^(Hyprland|start-hyprland|systemd|dbus-broker.*|pipewire.*|wireplumber|waybar|swaync|voxtype|alacritty|claude)$"
